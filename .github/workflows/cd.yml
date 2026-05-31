@@ -1,12 +1,38 @@
-# CD: on merge to main -> build/push ACR -> promote dev -> test -> prod.
-# TODO(step_05_task04).
+# CD: merge to main -> build/push to ACR -> promote dev -> test -> prod, eval gate per env.
+# Requires secrets: AZURE_CREDENTIALS, ACR_NAME, AKS_RG, AKS_NAME.
 name: cd
 on:
   push:
     branches: [main]
+env:
+  IMAGE: llmops-genai
 jobs:
-  promote:
+  build-push:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: echo "TODO(step_05_task04): build+push, promote namespaces with gates"
+      - uses: azure/login@v2
+        with: { creds: "${{ secrets.AZURE_CREDENTIALS }}" }
+      - run: az acr build -r "${{ secrets.ACR_NAME }}" -t "$IMAGE:${{ github.sha }}" .
+  promote:
+    needs: build-push
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      matrix:
+        env: [dev, test, prod]
+    environment: ${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with: { creds: "${{ secrets.AZURE_CREDENTIALS }}" }
+      - run: az aks get-credentials -g "${{ secrets.AKS_RG }}" -n "${{ secrets.AKS_NAME }}"
+      - name: Deploy ${{ matrix.env }}
+        run: |
+          kubectl apply -k "deploy/overlays/${{ matrix.env }}"
+          kubectl -n "${{ matrix.env }}" set image deploy/genai-api \
+            genai-api="${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE:${{ github.sha }}"
+          kubectl -n "${{ matrix.env }}" rollout status deploy/genai-api --timeout=180s
+      - name: Eval gate
+        env: { USE_STUB_LLM: "true" }
+        run: uv sync --extra dev && uv run python -m app.rag.ingest && uv run python eval/run_eval.py

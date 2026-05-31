@@ -1,0 +1,11 @@
+name: eval_judge
+version: 1
+model: gpt-4o-mini
+temperature: 0.0
+template: |
+  You are a strict grader for an accounting/tax assistant. Given QUESTION, CONTEXT,
+  EXPECTED, and ACTUAL, output ONLY JSON: {"correctness": 0..1, "grounded": 0..1}.
+  QUESTION: {question}
+  CONTEXT: {context}
+  EXPECTED: {expected}
+  ACTUAL: {actual}

@@ -1,4 +1,4 @@
-"""Deterministic PII tokenizer (step_02_task01).
+"""Deterministic PII(Personally Identifiable Information) tokenizer (step_02_task01).
 
 Detects SSNs and account numbers and replaces them with opaque, deterministic
 tokens ([SSN_xxxx], [ACCT_xxxx]) — same value always yields the same token. The
