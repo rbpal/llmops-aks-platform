@@ -35,4 +35,4 @@ jobs:
           kubectl -n "${{ matrix.env }}" rollout status deploy/genai-api --timeout=180s
       - name: Eval gate
         env: { USE_STUB_LLM: "true" }
-        run: uv sync --extra dev && uv run python -m app.rag.ingest && uv run python eval/run_eval.py
+        run: uv sync --extra dev && uv run python -m app.rag.ingest && uv run python -m eval.run_eval
