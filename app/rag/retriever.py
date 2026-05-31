@@ -1,4 +1,4 @@
-"""Embed the query and retrieve top-k chunks. TODO(step_01_task04)."""
+"""Embed the query and retrieve top-k chunks (step_01_task04). No backend branching."""
 from app.llm.client import get_client
 from app.rag.store import get_store
 

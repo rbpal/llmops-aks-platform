@@ -1,9 +1,47 @@
-"""Agent graph: input_guard -> domain_guard -> retrieve -> assemble -> generate.
+"""Agent graph (step_01_task06): domain_guard -> retrieve -> assemble -> generate.
 
-TODO(step_01_task06): implement (LangGraph or plain function).
+Plain function for speed; the same shape maps onto LangGraph nodes later.
 """
+from __future__ import annotations
+
+from app.llm.client import get_client
+from app.registry import loader
+from app.rag.retriever import retrieve
+
+REFUSAL = "I can only help with accounting and tax questions."
+
+# Minimal domain guard for the spine; full guardrails arrive in step_05.
+_OFF_TOPIC = ("weather", "sports", "recipe", "movie", "stock price", "lottery")
 
 
-def answer(question: str) -> dict:
-    """Run the full query pipeline. TODO(step_01_task06)."""
-    raise NotImplementedError
+def domain_guard(question: str) -> bool:
+    q = question.lower()
+    return not any(term in q for term in _OFF_TOPIC)
+
+
+def _format_context(chunks: list[dict]) -> str:
+    return "\n".join(f"[source: {c['source']}] {c['content']}" for c in chunks)
+
+
+def answer(question: str, k: int = 4) -> dict:
+    if not domain_guard(question):
+        return {"answer": REFUSAL, "sources": [], "prompt": None, "provider": None}
+
+    chunks = retrieve(question, k=k)
+    context = _format_context(chunks)
+    prompt = loader.load("answer_generation")
+    user_msg = prompt.template.format(context=context, question=question)
+
+    client = get_client()
+    text = client.chat(
+        system="You are an accounting/tax assistant. Answer only from the context.",
+        user=user_msg,
+        temperature=prompt.temperature,
+    )
+    sources = list(dict.fromkeys(c["source"] for c in chunks))
+    return {
+        "answer": text,
+        "sources": sources,
+        "prompt": f"{prompt.name} v{prompt.version} @{prompt.git_sha}",
+        "provider": client.name,
+    }
