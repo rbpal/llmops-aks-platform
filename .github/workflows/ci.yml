@@ -1,0 +1,12 @@
+# CI: build + eval gate (blocks PRs on regression). TODO(step_04_task04).
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  eval-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "TODO(step_04_task04): uv sync && make eval (gate blocks on fail)"

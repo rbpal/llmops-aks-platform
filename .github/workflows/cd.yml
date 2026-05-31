@@ -1,0 +1,12 @@
+# CD: on merge to main -> build/push ACR -> promote dev -> test -> prod.
+# TODO(step_05_task04).
+name: cd
+on:
+  push:
+    branches: [main]
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "TODO(step_05_task04): build+push, promote namespaces with gates"

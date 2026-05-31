@@ -1,0 +1,45 @@
+[project]
+name = "llmops-aks-platform"
+version = "0.1.0"
+description = "Governed deployment backbone for a RAG + agentic accounting/tax assistant on AKS (eval gate, PII tokenization, guardrails, prompt registry, Azure-native observability)."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # --- serving layer (step_01/06) ---
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    # --- LLM + agent (step_01) ---
+    "openai>=1.54",          # AzureOpenAI chat + embeddings
+    "langgraph>=0.2.45",     # agent graph: guard -> retrieve -> generate
+    "tiktoken>=0.8",         # token counting for cost calc (step_06)
+    # --- RAG vector store (step_01_task04) ---
+    "faiss-cpu>=1.9",        # local inner-loop store
+    "azure-search-documents>=11.5",  # managed cloud store (Azure AI Search)
+    "numpy>=1.26",
+    # --- config / registry (step_01_task03) ---
+    "pyyaml>=6.0",
+    # --- observability (step_06) ---
+    "prometheus-client>=0.21",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.7",
+    "httpx>=0.27",   # TestClient + API smoke tests
+]
+
+# Application repo, not a distributable library: install deps into .venv but
+# don't try to build/install this project itself (app/ and eval/ are added in
+# later build steps). Flip to a hatchling build target once those packages exist.
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "app", "eval"]

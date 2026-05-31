@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars (gitignored) and fill. Real values live in
+# privatedocs/azure-tfvars-draft.tfvars (outside the repo).
+subscription_id = "00000000-0000-0000-0000-000000000000"
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+environment     = "dev"
+location        = "eastus2"
+owner           = "your-alias"
+name_suffix     = "your-alias"
+
+openai_account_name       = "aoai-aaf-dev"
+openai_model_version      = "2024-11-20"
+openai_model_capacity_tpm = 10
+
+operator_email = "you@example.com"

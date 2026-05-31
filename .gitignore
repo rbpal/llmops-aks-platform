@@ -1,3 +1,8 @@
+# ============================================================
+# Privacy — AI assistant tooling must NEVER be committed
+# ============================================================
+.claude/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -216,3 +221,27 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ============================================================
+# Project-specific — secrets & state (NEVER commit)
+# ============================================================
+# Terraform — state holds secrets in plaintext; tfvars holds creds/ids
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform/
+crash.log
+crash.*.log
+# (.terraform.lock.hcl is intentionally NOT ignored — commit it)
+
+# Azure / cloud auth
+*.azureauth
+azureProfile.json
+
+# Runtime sensitive data (rebuilt at runtime, never committed)
+data/vault/
+app/rag/index/
+
+# Private notes / JDs / scratch — lives OUTSIDE the repo, belt-and-suspenders
+privatedocs/

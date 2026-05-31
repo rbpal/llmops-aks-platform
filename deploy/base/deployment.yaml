@@ -1,0 +1,26 @@
+# TODO(step_03_task02): set CPU requests deliberately high (forces node scaling).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: genai-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: genai-api }
+  template:
+    metadata:
+      labels: { app: genai-api }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+    spec:
+      containers:
+        - name: genai-api
+          image: llmops-genai:local
+          ports: [{ containerPort: 8000 }]
+          resources:
+            requests: { cpu: "500m", memory: "512Mi" }   # TODO: tune for autoscale demo
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8000 }
