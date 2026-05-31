@@ -279,6 +279,11 @@ same lines read `provider="azure_openai"` with real token counts and dollar cost
 Grafana stack (`deploy/local-observability/`) charts these; in production Azure Managed
 Grafana renders the identical metrics.
 
+The local Grafana dashboard (`make obs-up`, then `http://localhost:3000`) — running
+entirely on the laptop, no Azure required:
+
+![LLMOps Grafana dashboard — tokens, cost, latency (local)](docs/images/grafana-llmops-dashboard.png)
+
 ## Stack
 FastAPI + (LangGraph) agent · Azure AI Search (FAISS local fallback) · Azure OpenAI
 (Foundry: gpt-4o-mini + text-embedding-3-small) · uv · Docker · kind (local) / AKS (cloud) ·
