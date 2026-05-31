@@ -248,6 +248,37 @@ make eval                 # run the eval gate
 ```
 
 
+## Observability — viewable locally on your laptop
+
+The app is instrumented once (plain Prometheus format at `/metrics`). **You don't need
+Azure to see it** — the metrics are served by the app itself, so the full
+token/cost/latency telemetry is visible locally. Only the *managed scraper* (Azure Monitor
+Managed Prometheus) and the hosted dashboards (Azure Managed Grafana) are Azure-side; the
+exact same endpoint feeds both.
+
+```bash
+make run          # serve on :8000 (USE_STUB_LLM=true → no API cost)
+make obs-up       # optional: local Prometheus + Grafana at http://localhost:3000
+make load         # fire sample /chat traffic so the charts move
+curl -s localhost:8000/metrics | grep -E 'llm_|chat_'
+```
+
+Live output on the laptop after a few `/chat` calls (per-provider, per-model):
+
+```
+llm_tokens_in_total{model="gpt-4o-mini",provider="stub"}   962.0
+llm_tokens_out_total{model="gpt-4o-mini",provider="stub"}  169.0
+llm_cost_usd_total{model="gpt-4o-mini",provider="stub"}    0.0002457
+chat_requests_total{provider="stub",status="ok"}           3.0
+chat_latency_seconds_count                                 3.0
+chat_latency_seconds_sum                                   0.000262
+```
+
+`provider="stub"` because `USE_STUB_LLM=true` (no API cost); with real Azure OpenAI the
+same lines read `provider="azure_openai"` with real token counts and dollar cost. A local
+Grafana stack (`deploy/local-observability/`) charts these; in production Azure Managed
+Grafana renders the identical metrics.
+
 ## Stack
 FastAPI + (LangGraph) agent · Azure AI Search (FAISS local fallback) · Azure OpenAI
 (Foundry: gpt-4o-mini + text-embedding-3-small) · uv · Docker · kind (local) / AKS (cloud) ·
