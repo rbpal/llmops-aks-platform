@@ -10,7 +10,7 @@ from app.guardrails.input_guard import check_input
 from app.guardrails.output_guard import scrub_output
 from app.llm.client import get_client
 from app.observability import metrics
-from app.pii.tokenizer import detokenize
+from app.pii.tokenizer import detokenize, tokenize
 from app.registry import loader
 from app.rag.retriever import retrieve
 
@@ -39,6 +39,11 @@ def answer(question: str, k: int = 4) -> dict:
 
     if not domain_guard(question):
         return {"answer": REFUSAL, "sources": [], "prompt": None, "provider": None}
+
+    # Tokenize PII the user may have pasted into the question BEFORE it reaches
+    # retrieval, the LLM, or request logs. Same keyed tokens as ingestion, so a
+    # tokenized SSN in the question matches the tokenized SSN stored in the corpus.
+    question = tokenize(question)
 
     chunks = retrieve(question, k=k)
     context = _format_context(chunks)

@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     key_vault_uri: str = ""
     is_authorized: bool = False
 
+    # Keyed HMAC tokenization: tokens are HMAC(secret, value), not a bare hash, so
+    # they can't be brute-forced from the small SSN keyspace. The secret lives in
+    # Key Vault in prod; this env value is the local-dev fallback. Rotating it
+    # re-keys all future tokens, so re-ingest after a rotation.
+    pii_hmac_secret: str = "dev-only-rotate-me"
+
 
 @lru_cache
 def get_settings() -> Settings:
