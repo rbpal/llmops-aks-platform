@@ -1,12 +1,15 @@
-"""Ingest: read corpus -> chunk -> embed -> upsert (step_01_task05).
+"""Ingest: read corpus -> tokenize PII -> chunk -> embed -> upsert
+(step_01_task05 + step_02_task03).
 
-PII tokenization is hooked in at step_02_task03 (tokenize each chunk BEFORE embed).
+PII is tokenized BEFORE embedding, so raw SSNs/account numbers never reach the
+embeddings, the vector store, or the logs.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
 from app.llm.client import get_client
+from app.pii.tokenizer import tokenize
 from app.rag.store import get_store
 
 CORPUS_DIR = Path("data/corpus")
@@ -23,8 +26,7 @@ def ingest(corpus_dir: str | Path = CORPUS_DIR) -> int:
     store = get_store()
     records: list[dict] = []
     for md in sorted(Path(corpus_dir).glob("*.md")):
-        text = md.read_text()
-        # TODO(step_02_task03): tokenize(text) here so PII never gets embedded.
+        text = tokenize(md.read_text())   # PII out before anything else
         for j, chunk in enumerate(_chunk(text)):
             records.append({
                 "id": f"{md.stem}-{j}",

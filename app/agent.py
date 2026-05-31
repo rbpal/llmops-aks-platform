@@ -1,10 +1,12 @@
 """Agent graph (step_01_task06): domain_guard -> retrieve -> assemble -> generate.
 
-Plain function for speed; the same shape maps onto LangGraph nodes later.
+On read, detokenize is authorization-gated (step_02_task04): authorized callers
+get real PII values restored; everyone else keeps the opaque tokens.
 """
 from __future__ import annotations
 
 from app.llm.client import get_client
+from app.pii.tokenizer import detokenize
 from app.registry import loader
 from app.rag.retriever import retrieve
 
@@ -38,6 +40,7 @@ def answer(question: str, k: int = 4) -> dict:
         user=user_msg,
         temperature=prompt.temperature,
     )
+    text = detokenize(text)   # authorization-gated; no-op unless IS_AUTHORIZED
     sources = list(dict.fromkeys(c["source"] for c in chunks))
     return {
         "answer": text,

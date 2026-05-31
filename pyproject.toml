@@ -22,6 +22,10 @@ dependencies = [
     "pyyaml>=6.0",
     # --- observability (step_06) ---
     "prometheus-client>=0.21",
+    # --- PII vault (step_02) — Key Vault primary, encrypted local fallback ---
+    "azure-identity>=1.19",
+    "azure-keyvault-secrets>=4.9",
+    "cryptography>=43.0",
 ]
 
 [project.optional-dependencies]
