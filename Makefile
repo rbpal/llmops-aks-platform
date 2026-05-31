@@ -21,7 +21,7 @@ run: ## step_01_task07 — run the API locally
 	$(UV) run uvicorn app.main:app --reload --port 8000
 
 eval: ## step_04 — run the eval gate (nonzero exit blocks deploy)
-	$(UV) run python eval/run_eval.py
+	$(UV) run python -m eval.run_eval
 
 build: ## step_03_task01 — build the amd64 image
 	docker build -t llmops-genai:local .
