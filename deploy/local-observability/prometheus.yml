@@ -8,6 +8,8 @@ scrape_configs:
   - job_name: genai-api
     metrics_path: /metrics
     static_configs:
-      - targets: ["host.docker.internal:8000"]
+      # colima exposes the host as host.lima.internal; Docker Desktop uses
+      # host.docker.internal. Both are listed — Prometheus scrapes whichever resolves.
+      - targets: ["host.lima.internal:8000", "host.docker.internal:8000"]
         labels:
           env: local
