@@ -23,6 +23,17 @@ run: ## step_01_task07 — run the API locally
 eval: ## step_04 — run the eval gate (nonzero exit blocks deploy)
 	$(UV) run python -m eval.run_eval
 
+obs-up: ## step_06 — local Prometheus+Grafana to chart /metrics (Grafana :3000)
+	docker compose -f deploy/local-observability/docker-compose.yml up -d
+	@echo "Grafana:    http://localhost:3000  (dashboard: LLMOps — Tokens, Cost, Latency)"
+	@echo "Prometheus: http://localhost:9090   (run 'make run' so :8000/metrics is up)"
+
+obs-down: ## step_06 — stop the local observability stack
+	docker compose -f deploy/local-observability/docker-compose.yml down
+
+load: ## generate sample /chat traffic so the dashboard has data
+	$(UV) run python scripts/gen_traffic.py
+
 build: ## step_03_task01 — build the amd64 image
 	docker build -t llmops-genai:local .
 

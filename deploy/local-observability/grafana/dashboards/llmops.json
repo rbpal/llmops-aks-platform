@@ -1,0 +1,99 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "schemaVersion": 39,
+  "title": "LLMOps — Tokens, Cost, Latency",
+  "tags": ["llmops"],
+  "time": {"from": "now-15m", "to": "now"},
+  "refresh": "5s",
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total cost (USD) by provider/model",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 5}},
+      "targets": [
+        {"refId": "A", "expr": "sum by (provider, model) (llm_cost_usd_total)",
+         "legendFormat": "{{provider}}/{{model}}"}
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Chat requests (total)",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+      "targets": [
+        {"refId": "A", "expr": "sum(chat_requests_total)", "legendFormat": "requests"}
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Avg latency (s)",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 4}},
+      "targets": [
+        {"refId": "A",
+         "expr": "rate(chat_latency_seconds_sum[5m]) / clamp_min(rate(chat_latency_seconds_count[5m]), 1)",
+         "legendFormat": "avg latency"}
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Total tokens in/out",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+      "targets": [
+        {"refId": "A", "expr": "sum(llm_tokens_in_total)", "legendFormat": "in"},
+        {"refId": "B", "expr": "sum(llm_tokens_out_total)", "legendFormat": "out"}
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Token rate (tokens/s) by direction",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "fieldConfig": {"defaults": {"unit": "short"}},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(llm_tokens_in_total[1m]))", "legendFormat": "tokens in/s"},
+        {"refId": "B", "expr": "sum(rate(llm_tokens_out_total[1m]))", "legendFormat": "tokens out/s"}
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Cumulative cost (USD) by provider/model",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 5}},
+      "targets": [
+        {"refId": "A", "expr": "sum by (provider, model) (llm_cost_usd_total)",
+         "legendFormat": "{{provider}}/{{model}}"}
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Request latency p50 / p95 (s)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [
+        {"refId": "A", "expr": "histogram_quantile(0.50, sum(rate(chat_latency_seconds_bucket[5m])) by (le))", "legendFormat": "p50"},
+        {"refId": "B", "expr": "histogram_quantile(0.95, sum(rate(chat_latency_seconds_bucket[5m])) by (le))", "legendFormat": "p95"}
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Request rate by status",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "reqps"}},
+      "targets": [
+        {"refId": "A", "expr": "sum by (status) (rate(chat_requests_total[1m]))",
+         "legendFormat": "{{status}}"},
+        {"refId": "B", "expr": "sum(rate(llm_failures_total[1m]))", "legendFormat": "failures"}
+      ]
+    }
+  ]
+}

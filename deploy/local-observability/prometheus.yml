@@ -1,0 +1,13 @@
+# Scrapes the app's /metrics — the SAME endpoint Azure Monitor Managed Prometheus
+# scrapes on AKS. Here the target is the app running on your host (via make run).
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: genai-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+        labels:
+          env: local
