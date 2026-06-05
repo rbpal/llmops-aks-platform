@@ -1,0 +1,31 @@
+# centralus: REGION label + REAL Azure OpenAI on oai-rbpal-eastus (gpt-4.1-mini chat +
+# text-embedding-3-small). Auth is KEYLESS via AKS workload identity: the genai-api
+# ServiceAccount carries the uami-openai-rbpal client-id (serviceaccount.yaml), the pod label
+# below projects the federated token, and client.py uses WorkloadIdentityCredential (no
+# AZURE_OPENAI_API_KEY → it auto-falls to AAD). No static key in the cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: genai-api
+spec:
+  template:
+    metadata:
+      labels:
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: genai-api
+      containers:
+        - name: genai-api
+          env:
+            - name: REGION
+              value: "centralus"
+            - name: LLM_PROVIDER
+              value: "azure_openai"
+            - name: AZURE_OPENAI_ENDPOINT
+              value: "https://oai-rbpal-eastus.openai.azure.com/"
+            - name: AZURE_OPENAI_API_VERSION
+              value: "2024-10-21"
+            - name: CHAT_DEPLOYMENT
+              value: "gpt-4.1-mini"
+            - name: EMBEDDING_DEPLOYMENT
+              value: "text-embedding-3-small"

@@ -3,4 +3,14 @@ kind: Kustomization
 namespace: prod
 resources:
   - ../../base
-# TODO(step_03_task03): per-namespace replica/config differences
+
+# AKS pulls the image from ACR (not the local build tag). login server = <acr_name>.azurecr.io;
+# acr_name = acrllmops<name_suffix> — update if you change name_suffix in tfvars.
+images:
+  - name: llmops-genai
+    newName: acrllmopsrbpal.azurecr.io/llmops-genai
+    newTag: v1
+
+# Pin the genai-api Service to the internal LB IP the App Gateway backend targets.
+patches:
+  - path: internal-lb.yaml

@@ -18,7 +18,8 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
 class Prompt:
     name: str
     version: int
-    template: str
+    system: str  # instructions -> system role (NOT user, or Prompt Shield flags it)
+    template: str  # user message: context + question only
     model: str
     temperature: float
     git_sha: str
@@ -41,6 +42,7 @@ def load(name: str) -> Prompt:
     return Prompt(
         name=data["name"],
         version=int(data["version"]),
+        system=data.get("system", ""),
         template=data["template"],
         model=data.get("model", ""),
         temperature=float(data.get("temperature", 0.0)),

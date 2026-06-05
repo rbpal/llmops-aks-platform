@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: prod
+resources:
+  - ../../base
+  - serviceaccount.yaml
+
+# SAME image as eastus2 (one artifact, geo-replicated ACR). Region differs by env only.
+images:
+  - name: llmops-genai
+    newName: acrllmopsdrrbpal.azurecr.io/llmops-genai
+    newTag: v1
+
+patches:
+  - path: region-config.yaml   # REGION=centralus + real Azure OpenAI (keyless)
+  - path: internal-lb.yaml     # internal LB pinned to centralus App Gateway backend IP

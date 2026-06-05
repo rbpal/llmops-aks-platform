@@ -231,6 +231,10 @@ __marimo__/
 *.tfvars
 !*.tfvars.example
 .terraform/
+# saved plan files can embed resolved secret values — never commit
+*.tfplan
+tfplan
+tfplan.*
 crash.log
 crash.*.log
 # (.terraform.lock.hcl is intentionally NOT ignored — commit it)

@@ -6,10 +6,17 @@ on:
 jobs:
   eval-gate:
     runs-on: ubuntu-latest
+    # ingest + eval hit the real Azure OpenAI deployment (no stub) on oai-rbpal-eastus,
+    # authenticated with an API key from the AZURE_OPENAI_API_KEY repo secret.
     env:
-      USE_STUB_LLM: "true"
       VECTOR_STORE: "faiss"
       VAULT_BACKEND: "local"
+      LLM_PROVIDER: "azure_openai"
+      AZURE_OPENAI_ENDPOINT: "https://oai-rbpal-eastus.openai.azure.com/"
+      AZURE_OPENAI_API_VERSION: "2024-10-21"
+      AZURE_OPENAI_API_KEY: "${{ secrets.AZURE_OPENAI_API_KEY }}"
+      CHAT_DEPLOYMENT: "gpt-4.1-mini"
+      EMBEDDING_DEPLOYMENT: "text-embedding-3-small"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

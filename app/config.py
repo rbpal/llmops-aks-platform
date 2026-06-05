@@ -7,9 +7,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # Region label surfaced in responses so active-active load-balancing tests can see which
+    # region replied. Set per region in prod (env REGION=eastus2 / centralus).
+    region: str = "local"
+
+    # Defense-in-depth origin lock (option C). When set (to the AFD profile's FDID / resource_guid,
+    # from `terraform output afd_fdid`), the app rejects /chat requests whose X-Azure-FDID header
+    # doesn't match — so a request that bypasses Front Door straight to the pod/App Gateway is
+    # refused even if it cleared the edge. Empty (local/dev/CI) = check disabled. /healthz and
+    # /metrics are always exempt (App Gateway backend probe + in-cluster Prometheus carry no FDID).
+    expected_fdid: str = ""
+
     # --- LLM provider routing (TODO step_01_task02 / decision: multi-provider) ---
     llm_provider: str = "azure_openai"          # azure_openai | anthropic
-    use_stub_llm: bool = True
 
     # Azure OpenAI
     azure_openai_endpoint: str = ""

@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: prod
+resources:
+  - ../../base
+  - serviceaccount.yaml
+
+# One image, geo-replicated ACR. Region is injected via env (region-config.yaml) — NOT a
+# separate per-region image. Update newName if you change name_suffix.
+images:
+  - name: llmops-genai
+    newName: acrllmopsdrrbpal.azurecr.io/llmops-genai
+    newTag: v1
+
+patches:
+  - path: region-config.yaml   # REGION=eastus2 + real Azure OpenAI (keyless via workload identity)
+  - path: internal-lb.yaml     # internal LB pinned to this region's App Gateway backend IP

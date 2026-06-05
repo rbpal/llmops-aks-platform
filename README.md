@@ -88,6 +88,38 @@ LANE 3 — EVAL  (used only by the CI gate, never served)
 The **vector store is the hinge**: Lane 1 fills it, Lane 2 reads it, Lane 3 exercises all
 of Lane 2 to grade it before anything ships.
 
+## Multi-region DR topology (infra-dr/)
+
+The three lanes above run *inside* a pod; this is the active-active platform that pod runs
+on. `infra-dr/` provisions the workload in **two regions at once** (`eastus2` + `centralus`),
+fronted by a global Azure Front Door that splits traffic 50/50 and fails a region out on its
+health probe. Flipping one origin's priority in `infradr.auto.tfvars` reverts it to
+active-passive — nothing else changes.
+
+```
+client ─► AFD (WAF · TLS · /healthz LB · 50/50 weight)
+       ─► region App Gateway (WAF · +X-Served-Region)  ─► AKS internal LB 10.x.2.250
+       ─► Pod genai-api:8000 ─► {three lanes} ─► Azure OpenAI (egress via vWAN-hub firewall)
+       ◄─ response carries the region label → proves which region served
+```
+
+| Tier | Module | Role |
+|------|--------|------|
+| Global edge | `frontdoor` | AFD Premium + WAF, one origin group, both origins priority 1 (★ active-active) |
+| Regional inbound | `appgateway` · `nsg` | App Gateway WAF_v2 on `:80`, stamps `X-Served-Region`; NSG limits source to the AFD service tag **and** a WAF rule validates `X-Azure-FDID` to lock the origin to *our* Front Door |
+| Compute | `aks` | AKS CNI-overlay, `userDefinedRouting` egress, Workload Identity (keyless) |
+| Transit / egress | `vwan` · `firewall` | Auto-meshed hubs + Azure Firewall; routing intent forces all egress through the FW. Demo uses a permissive `allow-all-egress-demo` rule but logs every flow to a Log Analytics workspace — delete the rule to restore deny-by-default |
+| Image supply | `acr` | One Premium registry, geo-replicated; each cluster pulls a local replica |
+| Observability | `observability` | Both regions feed one Prometheus workspace + Grafana (failover visible) |
+
+📐 **Full annotated diagram:** a standalone styled HTML page is maintained in the project's
+private docs (`privatedocs/dr-topology.html`, not published) — every box maps to a real Terraform
+resource, with the address plan, firewall egress allow-list, NSG rules, and identity wiring. Open
+in a browser, or print to PDF (the page ships a print stylesheet).
+
+> Status: ~61 resources, plan-authored, **not yet applied**. Heavier meter than single-region
+> `infra/` (2× firewall, 2× AKS, AFD Premium) — guarded by a $200/mo budget alert.
+
 ## Workflow narrative — how this changes an accountant's day
 
 The product is the governed pipeline around the model. This is what that pipeline *feels
@@ -240,49 +272,13 @@ deploy.
 # install uv if needed: curl -LsSf https://astral.sh/uv/install.sh | sh
 make venv                 # uv sync — creates .venv, installs from pyproject.toml
 cp .env.example .env      # fill in Foundry endpoint/key/deployments
-make smoke-foundry        # step_00: verify Azure OpenAI works
-make smoke-kind           # step_00: verify local cluster
+make smoke-foundry        # verify Azure OpenAI works
+make smoke-kind           # verify local cluster
 make ingest               # build PII-free vector index (VECTOR_STORE=faiss locally)
 make run                  # serve locally on :8000
 make eval                 # run the eval gate
 ```
 
-
-## Observability — viewable locally on your laptop
-
-The app is instrumented once (plain Prometheus format at `/metrics`). **You don't need
-Azure to see it** — the metrics are served by the app itself, so the full
-token/cost/latency telemetry is visible locally. Only the *managed scraper* (Azure Monitor
-Managed Prometheus) and the hosted dashboards (Azure Managed Grafana) are Azure-side; the
-exact same endpoint feeds both.
-
-```bash
-make run          # serve on :8000 (USE_STUB_LLM=true → no API cost)
-make obs-up       # optional: local Prometheus + Grafana at http://localhost:3000
-make load         # fire sample /chat traffic so the charts move
-curl -s localhost:8000/metrics | grep -E 'llm_|chat_'
-```
-
-Live output on the laptop after a few `/chat` calls (per-provider, per-model):
-
-```
-llm_tokens_in_total{model="gpt-4o-mini",provider="stub"}   962.0
-llm_tokens_out_total{model="gpt-4o-mini",provider="stub"}  169.0
-llm_cost_usd_total{model="gpt-4o-mini",provider="stub"}    0.0002457
-chat_requests_total{provider="stub",status="ok"}           3.0
-chat_latency_seconds_count                                 3.0
-chat_latency_seconds_sum                                   0.000262
-```
-
-`provider="stub"` because `USE_STUB_LLM=true` (no API cost); with real Azure OpenAI the
-same lines read `provider="azure_openai"` with real token counts and dollar cost. A local
-Grafana stack (`deploy/local-observability/`) charts these; in production Azure Managed
-Grafana renders the identical metrics.
-
-The local Grafana dashboard (`make obs-up`, then `http://localhost:3000`) — running
-entirely on the laptop, no Azure required:
-
-![LLMOps Grafana dashboard — tokens, cost, latency (local)](docs/images/grafana-llmops-dashboard.png)
 
 ## Stack
 FastAPI + (LangGraph) agent · Azure AI Search (FAISS local fallback) · Azure OpenAI

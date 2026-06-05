@@ -15,10 +15,10 @@ failures = Counter("llm_failures_total", "Failed LLM calls", ["provider"])
 latency = Histogram("chat_latency_seconds", "End-to-end /chat latency (s)")
 
 PRICE_PER_1K = {
+    "gpt-4.1-mini": (0.0004, 0.0016),
     "gpt-4o-mini": (0.00015, 0.00060),
     "text-embedding-3-small": (0.00002, 0.0),
     "claude-opus-4-8": (0.015, 0.075),
-    "stub": (0.0, 0.0),
 }
 
 _enc = None

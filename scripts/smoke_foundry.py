@@ -1,5 +1,5 @@
 """Foundry smoke test (step_00_task03): live Azure OpenAI chat + embeddings.
-Needs .env filled and USE_STUB_LLM=false.  uv run python scripts/smoke_foundry.py
+Needs .env filled.  uv run python scripts/smoke_foundry.py
 """
 from __future__ import annotations
 
@@ -10,9 +10,6 @@ from app.llm.client import AzureOpenAIClient
 
 
 def main() -> int:
-    if settings.use_stub_llm:
-        print("USE_STUB_LLM=true — set it false in .env to hit real Foundry.")
-        return 1
     client = AzureOpenAIClient()
     chat = client.chat(system="You are a test.", user="Reply with the single word: ok")
     print(f"chat[{settings.chat_deployment}] -> {chat!r}")

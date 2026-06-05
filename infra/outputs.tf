@@ -7,6 +7,11 @@ output "acr_name" { value = module.acr.name }
 # AKS — `az aks get-credentials -g <rg> -n <aks_name>`.
 output "aks_name" { value = module.aks.name }
 
+# Application Gateway (WAF_v2) — Maya's public entrypoint; curl this once the internal
+# ingress Service is up on internal_lb_ip.
+output "app_gateway_public_ip" { value = module.app_gateway.public_ip }
+output "app_gateway_url" { value = "http://${module.app_gateway.public_ip}" }
+
 # Azure AI Search — point VECTOR_STORE=azure_search at this.
 output "search_endpoint" { value = module.search.endpoint }
 output "search_primary_key" {

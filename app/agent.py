@@ -52,7 +52,9 @@ def answer(question: str, k: int = 4) -> dict:
     logger.info("prompt %s", audit)
 
     client = get_client()
-    system = "You are an accounting/tax assistant. Answer only from the context."
+    # Instructions go in the SYSTEM role; the user message is context+question only.
+    # (Directives in the user role trip Azure Prompt Shield jailbreak detection -> 400.)
+    system = prompt.system
     user_msg = prompt.template.format(context=context, question=question)
 
     t0 = time.perf_counter()

@@ -4,7 +4,7 @@
     make obs-up       # start Prometheus + Grafana
     make load         # this script — fires a stream of questions
 
-Hits the running app over HTTP; respects USE_STUB_LLM (no API cost in stub mode).
+Hits the running app over HTTP (real Azure OpenAI — incurs API cost per call).
 """
 from __future__ import annotations
 

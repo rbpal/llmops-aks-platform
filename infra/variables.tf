@@ -26,6 +26,25 @@ variable "node_vm_size" {
   default = "Standard_D2s_v3"
 }
 
+# --- Networking (BYO VNet shared by AKS + App Gateway) ---
+variable "vnet_cidr" {
+  type    = string
+  default = "10.224.0.0/16"
+}
+variable "aks_subnet_cidr" {
+  type    = string
+  default = "10.224.0.0/20" # nodes + internal LB frontend (pods use overlay CIDR)
+}
+variable "appgw_subnet_cidr" {
+  type    = string
+  default = "10.224.16.0/24" # App Gateway v2 needs its own dedicated subnet
+}
+variable "internal_lb_ip" {
+  type        = string
+  default     = "10.224.0.250" # must be inside aks_subnet_cidr
+  description = "Static private IP for the AKS internal LB; set on the ingress Service annotation azure-load-balancer-ipv4 and used as the App Gateway backend."
+}
+
 # --- Azure AI Search ---
 variable "search_sku" {
   type    = string

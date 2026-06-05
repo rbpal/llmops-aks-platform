@@ -26,4 +26,4 @@ def test_prompt_audit_logged(caplog):
     ing.ingest("data/corpus")
     with caplog.at_level(logging.INFO, logger="llmops.agent"):
         answer("What is the capitalization threshold for depreciation?")
-    assert any("answer_generation v1 @" in (r.getMessage()) for r in caplog.records)
+    assert any("answer_generation v2 @" in (r.getMessage()) for r in caplog.records)

@@ -83,7 +83,7 @@ def test_inbound_question_pii_tokenized_before_llm(tmp_path, monkeypatch):
     real_client = agent_mod.get_client()
 
     class SpyClient:
-        name = "stub"
+        name = "azure_openai"
 
         def chat(self, system, user, temperature=0.0):
             seen["user"] = user

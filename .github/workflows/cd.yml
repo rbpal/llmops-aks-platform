@@ -34,5 +34,12 @@ jobs:
             genai-api="${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE:${{ github.sha }}"
           kubectl -n "${{ matrix.env }}" rollout status deploy/genai-api --timeout=180s
       - name: Eval gate
-        env: { USE_STUB_LLM: "true" }
+        # Real Azure OpenAI judge on oai-rbpal-eastus, API-key auth (AZURE_OPENAI_API_KEY secret).
+        env:
+          LLM_PROVIDER: "azure_openai"
+          AZURE_OPENAI_ENDPOINT: "https://oai-rbpal-eastus.openai.azure.com/"
+          AZURE_OPENAI_API_VERSION: "2024-10-21"
+          AZURE_OPENAI_API_KEY: "${{ secrets.AZURE_OPENAI_API_KEY }}"
+          CHAT_DEPLOYMENT: "gpt-4.1-mini"
+          EMBEDDING_DEPLOYMENT: "text-embedding-3-small"
         run: uv sync --extra dev && uv run python -m app.rag.ingest && uv run python -m eval.run_eval

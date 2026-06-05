@@ -24,15 +24,37 @@ module "acr" {
   tags                = local.tags
 }
 
+module "network" {
+  source              = "./modules/network"
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  name_suffix         = var.name_suffix
+  vnet_cidr           = var.vnet_cidr
+  aks_subnet_cidr     = var.aks_subnet_cidr
+  appgw_subnet_cidr   = var.appgw_subnet_cidr
+  tags                = local.tags
+}
+
 module "aks" {
   source              = "./modules/aks"
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
   name_suffix         = var.name_suffix
+  vnet_subnet_id      = module.network.aks_subnet_id
   node_min_count      = var.node_min_count
   node_max_count      = var.node_max_count
   node_vm_size        = var.node_vm_size
   tags                = local.tags
+}
+
+module "app_gateway" {
+  source                 = "./modules/app_gateway"
+  resource_group_name    = azurerm_resource_group.rg.name
+  location               = azurerm_resource_group.rg.location
+  name_suffix            = var.name_suffix
+  appgw_subnet_id        = module.network.appgw_subnet_id
+  backend_internal_lb_ip = var.internal_lb_ip
+  tags                   = local.tags
 }
 
 module "search" {
@@ -89,6 +111,14 @@ resource "azurerm_role_assignment" "operator_kv_officer" {
   scope                = module.key_vault.id
   role_definition_name = "Key Vault Secrets Officer"
   principal_id         = data.azurerm_client_config.current.object_id
+}
+
+# BYO VNet: the AKS control-plane identity needs Network Contributor on the VNet to
+# manage the internal load balancer, routes, and node NICs in our subnet.
+resource "azurerm_role_assignment" "aks_network_contributor" {
+  scope                = module.network.vnet_id
+  role_definition_name = "Network Contributor"
+  principal_id         = module.aks.principal_id
 }
 
 # --- FinOps: budget alert emailing the operator on spend thresholds ---
