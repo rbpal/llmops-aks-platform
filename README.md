@@ -88,10 +88,11 @@ LANE 3 — EVAL  (used only by the CI gate, never served)
 The **vector store is the hinge**: Lane 1 fills it, Lane 2 reads it, Lane 3 exercises all
 of Lane 2 to grade it before anything ships.
 
-## Multi-region DR topology (infra-dr/)
+## Active-active multi-region platform (infra-dr/)
 
 The three lanes above run *inside* a pod; this is the active-active platform that pod runs
-on. `infra-dr/` provisions the workload in **two regions at once** (`eastus2` + `centralus`),
+on, and it is the **only** deployment topology — there is no separate single-region path.
+`infra-dr/` provisions the workload in **two regions at once** (`eastus2` + `centralus`),
 fronted by a global Azure Front Door that splits traffic 50/50 and fails a region out on its
 health probe. Flipping one origin's priority in `infradr.auto.tfvars` reverts it to
 active-passive — nothing else changes.
@@ -105,22 +106,25 @@ client ─► AFD (WAF · TLS · /healthz LB · 50/50 weight)
 
 | Tier | Module | Role |
 |------|--------|------|
-| Global edge | `frontdoor` | AFD Premium + WAF, one origin group, both origins priority 1 (★ active-active) |
-| Regional inbound | `appgateway` · `nsg` | App Gateway WAF_v2 on `:80`, stamps `X-Served-Region`; NSG limits source to the AFD service tag **and** a WAF rule validates `X-Azure-FDID` to lock the origin to *our* Front Door |
-| Compute | `aks` | AKS CNI-overlay, `userDefinedRouting` egress, Workload Identity (keyless) |
-| Transit / egress | `vwan` · `firewall` | Auto-meshed hubs + Azure Firewall; routing intent forces all egress through the FW. Demo uses a permissive `allow-all-egress-demo` rule but logs every flow to a Log Analytics workspace — delete the rule to restore deny-by-default |
-| Image supply | `acr` | One Premium registry, geo-replicated; each cluster pulls a local replica |
-| Observability | `observability` | Both regions feed one Prometheus workspace + Grafana (failover visible) |
+| Global edge | `frontdoor_profile` · `frontdoor_origins` | AFD Premium + WAF + origin group; the **profile is created first** so it yields the FDID, origins/route come last (they need the App Gateway FQDNs). Both origins priority 1 / weight 1000 (★ active-active 50/50) |
+| Regional inbound | `appgateway` · `nsg` | App Gateway WAF_v2 on `:80`, per-region rewrite set stamps the serving region; NSG limits source to the AFD service tag **and** a WAF rule validates `X-Azure-FDID` to lock the origin to *our* Front Door |
+| Compute | `aks` | Per region: AKS CNI-overlay, `userDefinedRouting` egress (explicit route table → firewall private IP), Workload Identity (keyless) |
+| Transit / egress | `vwan` · `firewall` | Per region: auto-meshed hub + Azure Firewall; routing intent forces all egress through the FW. Demo uses a permissive `allow-all-egress-demo` rule but logs every flow to a Log Analytics workspace — delete the rule to restore deny-by-default |
+| Image supply | `acr` | One Premium registry, geo-replicated to both regions; each cluster pulls a local replica (AcrPull via managed identity, Admin user off) |
+| Observability | `observability` | Both regions feed one Azure Monitor (Prometheus) workspace + one Managed Grafana — single-pane fleet view (DCE/DCR co-located with the workspace region) |
 
 📐 **Full annotated diagram:** a standalone styled HTML page is maintained in the project's
 private docs (`privatedocs/dr-topology.html`, not published) — every box maps to a real Terraform
 resource, with the address plan, firewall egress allow-list, NSG rules, and identity wiring. Open
 in a browser, or print to PDF (the page ships a print stylesheet).
 
-> Status: **applied & live** — 64 resources across `eastus2` + `centralus`, end-to-end tested
-> through Front Door (see live demo below). Heavier meter than single-region `infra/` (2× firewall,
-> 2× AKS, AFD Premium) — guarded by a $200/mo budget alert; torn down with `terraform destroy` after
-> each exercise.
+> Status: **built, tested end-to-end, failover-proven, then torn down.** A single `terraform apply`
+> in `infra-dr/` stands up **68 resources** across `eastus2` + `centralus`; the app was deployed to
+> both regions, exercised through Front Door (live demo below), and a real **failover drill** was run
+> (Front Door origin health eastus2 → 0%, centralus → 100%). This is the **only** topology — there is
+> no single-region alternative. It carries a heavy meter (2× Azure Firewall, 2× AKS, AFD Premium), so
+> it is guarded by a $200/mo budget alert and **destroyed after each exercise** (`terraform destroy`);
+> re-`apply` brings it back identically.
 
 ## Live demo — PII-safe query through Front Door
 
@@ -455,8 +459,8 @@ are marked `# TODO(step_XX_taskYY)`.
 - **step_04** Eval gate (LLM-as-judge) — the centerpiece; CI blocks regressions
 - **step_05** Guardrails + prompt registry audit + CD promotion
 - **step_06** Observability — Azure-native Prometheus + Grafana, per-provider + cost
-- **step_07** Real AKS + 1->3 autoscale demo (Terraform)
-- **step_08** Wrap up + teardown (destroy billable resources)
+- **step_07** Active-active multi-region platform (`infra-dr/`) — Front Door + per-region {App Gateway WAF, AKS 1->3 autoscale, Azure Firewall via vWAN}, geo-replicated ACR, one Prometheus+Grafana; 50/50 load-balanced and failover-tested
+- **step_08** Wrap up + teardown (`terraform destroy` — the A/A meter is heavy, tear down after each run)
 
 The system runs as three data lanes — **Ingestion** (corpus → tokenize PII → chunk →
 embed → vector store), **Query** (guards → retrieve → assemble versioned prompt → LLM
