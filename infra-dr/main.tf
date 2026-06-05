@@ -153,6 +153,7 @@ module "aks" {
   name_suffix         = var.name_suffix
   region_key          = each.key
   aks_subnet_id       = module.network.aks_subnet_ids[each.key]
+  firewall_private_ip = module.firewall.firewall_private_ips[each.key]
   pod_cidr            = each.value.pod_cidr
   service_cidr        = each.value.service_cidr
   dns_service_ip      = each.value.dns_service_ip

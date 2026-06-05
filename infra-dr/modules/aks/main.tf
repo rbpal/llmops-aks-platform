@@ -1,7 +1,34 @@
 # AKS (CNI overlay) with egress via userDefinedRouting — node egress leaves through the
 # vWAN-hub firewall via the routing intent on the spoke. The caller must order this AFTER
 # the firewall module (routing intent) so the 0/0 route exists before nodes bootstrap.
+#
+# outbound_type=userDefinedRouting REQUIRES a route table explicitly associated with the node
+# subnet at create time. vWAN routing-intent propagation alone is NOT enough — AKS validation
+# fails with "ExistingRouteTableNotAssociatedWithSubnet". So we associate an explicit route table
+# whose 0/0 points at the hub firewall's private IP (belt-and-suspenders with routing intent).
+resource "azurerm_route_table" "aks" {
+  name                = "rt-aks-${var.region_key}-${var.name_suffix}"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  tags                = var.tags
+
+  route {
+    name                   = "default-to-firewall"
+    address_prefix         = "0.0.0.0/0"
+    next_hop_type          = "VirtualAppliance"
+    next_hop_in_ip_address = var.firewall_private_ip
+  }
+}
+
+resource "azurerm_subnet_route_table_association" "aks" {
+  subnet_id      = var.aks_subnet_id
+  route_table_id = azurerm_route_table.aks.id
+}
+
 resource "azurerm_kubernetes_cluster" "aks" {
+  # The route-table association must exist before AKS validates its UDR egress.
+  depends_on = [azurerm_subnet_route_table_association.aks]
+
   name                = "aks-${var.region_key}-${var.name_suffix}"
   resource_group_name = var.resource_group_name
   location            = var.location

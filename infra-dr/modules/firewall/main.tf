@@ -121,6 +121,12 @@ resource "azurerm_monitor_diagnostic_setting" "fw" {
   target_resource_id         = azurerm_firewall.fw[each.key].id
   log_analytics_workspace_id = azurerm_log_analytics_workspace.fw.id
 
+  # "Resource specific" destination tables (AZFWNetworkRule, AZFWApplicationRule, AZFWNatRule, …)
+  # instead of the legacy single AzureDiagnostics blob. Dedicated tables = typed columns, faster
+  # KQL, and lower ingestion cost. This is what the egress-audit query (AZFWNetworkRule | where
+  # Action == "Allow") actually depends on.
+  log_analytics_destination_type = "Dedicated"
+
   enabled_log {
     category_group = "allLogs"
   }

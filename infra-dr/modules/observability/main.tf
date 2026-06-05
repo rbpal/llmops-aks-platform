@@ -11,16 +11,19 @@ resource "azurerm_monitor_data_collection_endpoint" "dce" {
   for_each            = var.regions
   name                = "dce-${each.key}-${var.name_suffix}"
   resource_group_name = var.resource_group_name
-  location            = each.value.location
-  kind                = "Linux"
-  tags                = var.tags
+  # Co-located with the Azure Monitor workspace (primary_location). A Prometheus DCR/DCE that
+  # targets the AMW must be in the AMW's region — a centralus DCR -> eastus2 AMW fails with
+  # "AccountNotFound ... different location". The DCRA still associates each region's cluster.
+  location = var.primary_location
+  kind     = "Linux"
+  tags     = var.tags
 }
 
 resource "azurerm_monitor_data_collection_rule" "dcr" {
   for_each                    = var.regions
   name                        = "dcr-${each.key}-${var.name_suffix}"
   resource_group_name         = var.resource_group_name
-  location                    = each.value.location
+  location                    = var.primary_location
   data_collection_endpoint_id = azurerm_monitor_data_collection_endpoint.dce[each.key].id
   tags                        = var.tags
 

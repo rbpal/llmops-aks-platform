@@ -117,8 +117,166 @@ private docs (`privatedocs/dr-topology.html`, not published) — every box maps 
 resource, with the address plan, firewall egress allow-list, NSG rules, and identity wiring. Open
 in a browser, or print to PDF (the page ships a print stylesheet).
 
-> Status: ~61 resources, plan-authored, **not yet applied**. Heavier meter than single-region
-> `infra/` (2× firewall, 2× AKS, AFD Premium) — guarded by a $200/mo budget alert.
+> Status: **applied & live** — 64 resources across `eastus2` + `centralus`, end-to-end tested
+> through Front Door (see live demo below). Heavier meter than single-region `infra/` (2× firewall,
+> 2× AKS, AFD Premium) — guarded by a $200/mo budget alert; torn down with `terraform destroy` after
+> each exercise.
+
+## Live demo — PII-safe query through Front Door
+
+A real request from outside Azure, all the way through the active-active topology to a keyless pod.
+Maya (a tax associate) pastes a client SSN into her question — the platform strips it **before** the
+model or any log ever sees it.
+
+```bash
+curl -s -X POST https://<afd-endpoint>.z02.azurefd.net/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "I am filing a 1099 for contractor John Doe, SSN 123-45-6789. How long must we retain his tax records and how should they be stored?"}'
+```
+
+**What the model and request logs actually receive** (PII tokenized at the edge of the agent, before
+retrieval/LLM — keyed HMAC, not reversible without the secret):
+
+```
+I am filing a 1099 for contractor John Doe, SSN [SSN_b23b]. How long must we retain his tax records ...
+```
+
+**Response (HTTP 200):**
+
+```json
+{
+  "answer": "Tax returns and supporting workpapers must be retained for seven years. Records are destroyed securely after the retention period [source: 05_retention_schedule.md].",
+  "sources": ["05_retention_schedule.md", "03_client_engagement_letter.md", "02_expense_reimbursement.md", "04_revenue_recognition.md"],
+  "prompt":   "answer_generation v2",
+  "provider": "azure_openai",
+  "region":   "eastus2"
+}
+```
+
+What this one call proves:
+
+- **PII never reaches the model** — `123-45-6789` became `[SSN_b23b]` before retrieval and the LLM
+  call; the answer carries no SSN. Protection is by construction (tokenize-first), not a prompt plea.
+- **Keyless in production** — `provider: azure_openai` with **no API key in the cluster**; the pod got
+  an AAD token via AKS Workload Identity + a federated credential on `uami-openai-rbpal`.
+- **Grounded, not recalled** — the seven-year answer is cited from `05_retention_schedule.md`.
+- **Active-active** — `region: eastus2` identifies which of the two origins Front Door served.
+- **Origin lock** — the client sends no `X-Azure-FDID`; Front Door injects it and the App Gateway WAF
+  validates it, so only *our* Front Door can reach the origin.
+
+> Same image, prompt, and corpus as the local path — the only difference between local
+> (`region: local`, API key) and cloud (`region: eastus2`, keyless) is **how the code authenticated**.
+
+### Active-active load balancing — proven
+
+With the app deployed to **both** regions, Front Door splits traffic 50/50 across the two
+origins. Twenty identical requests through the AFD endpoint:
+
+```
+$ for i in $(seq 1 20); do curl -s .../chat -d '{"question":"..."}' | jq -r .region; done | sort | uniq -c
+  10 centralus
+  10 eastus2
+```
+
+A clean 10/10 split — the `region` field in each response is the proof of *which* origin served
+it. Failover is the same mechanism: delete one region's deployment and its App Gateway origin goes
+unhealthy on the AFD health probe, so all traffic shifts to the survivor (flip an origin's priority
+in `infradr.auto.tfvars` to switch to active-passive instead).
+
+### Failover — tested live, end to end
+
+I ran a real failover against the running estate. The kill was **non-destructive** — I scaled the
+eastus2 `genai-api` Deployment to **0 replicas** (infrastructure untouched), so no pod answers
+`GET /healthz`. Health probes then take the region out of rotation with **no config change, no DNS
+edit, no Terraform**:
+
+```
+# 1. BASELINE — both regions live (20 calls through Front Door)
+       12 centralus · 8 eastus2                    # ≈ 50/50 by weight
+
+# 2. KILL eastus2 (reversible — scale to zero, do NOT delete)
+   kubectl --context aks-eastus2-rbpal -n prod scale deployment genai-api --replicas=0
+
+# 3. ~100s later, after the probes converge
+       18 centralus · 0 eastus2                    # 100% shifted, 0 errors in steady state
+
+# 4. RESTORE
+   kubectl --context aks-eastus2-rbpal -n prod scale deployment genai-api --replicas=1
+       18 centralus · 2 eastus2  → rebalances back to 50/50 as probes recover
+```
+
+**Why it works — a two-layer health-probe cascade.** Nothing is manual; two independent probes,
+both hitting the app's real `/healthz`, do the work:
+
+| Layer | Probe | Cadence | Marks region down after |
+|---|---|---|---|
+| **Regional** — App Gateway | `probe-healthz` → `GET /healthz` on internal LB `10.10.2.250` | 30 s interval, `200–399` | 3 consecutive failures (~90 s) |
+| **Global** — Front Door | origin-group probe → `GET /healthz` per origin | 30 s | drops origin from `og-genai` once unhealthy |
+
+The App Gateway sees its backend pool go empty first; Front Door's own probe then fails the whole
+eastus2 origin and routes 100% to centralus. Convergence in this run was **~100 s** end to end.
+
+**Proof — Front Door origin health during the failover:**
+
+![Front Door Origin Health Percentage, split by origin, during two failover drills](docs/images/dr-afd-origin-health-failover.png)
+
+*Front Door → Metrics → `Origin Health Percentage`, split by origin.* The **pink** line is
+`origin-eastus2`, the **blue** line is `origin-centralus`. Each time eastus2's `genai-api` is scaled
+to zero, its origin health plunges to **0%** while centralus stays pinned at **100%** — then climbs
+straight back when the deployment is restored. Two troughs = two drills (kill → recover → kill).
+The legend's eastus2 average (**56.68%**) is dragged down precisely *because* of those outages,
+while centralus reads **99.35%**. This is the failover, detected and acted on by the probe — no human,
+no DNS change.
+
+**RTO / RPO for this design:**
+
+| Metric | Value | Why |
+|---|---|---|
+| **RTO** (recovery time) | **~100 s, automatic** | probe cascade above; no human, no DNS TTL (Front Door is anycast, not DNS-based) |
+| **RPO** (data loss) | **≈ 0** | the app is **stateless** — RAG index is baked into the image, no per-region database to replicate; an in-flight request may fail once and is safely retried |
+| **Failover trigger** | health-driven | `/healthz` going dark, not a manual switch |
+| **Blast radius of one region** | 0% of capacity lost (to the user) | the survivor already runs hot at full size and absorbs 100% |
+
+**Active-active vs active-passive — the trade-off this build makes:**
+
+| | Active-active (built) | Active-passive (one flag away) |
+|---|---|---|
+| Origins | both Priority 1 / Weight 1000 → 50/50 | survivor Priority 1, standby Priority 2 |
+| Steady-state cost | **2× compute always on** | standby can be smaller/scaled-down |
+| RTO | lowest — standby already serving | higher — cold/warm start on the standby |
+| Capacity headroom needed | each region must hold **100%** of load alone | same, if standby is full-size |
+| Switch | — | set `centralus` origin `priority = 2` in `infradr.auto.tfvars` |
+
+**What this test did *not* prove (honest scope).** Scale-to-zero simulates *app* failure in a
+region, not a *full* regional outage (control plane, AZ, or network partition). It also doesn't
+exercise stateful replication — there is no database here by design (stateless RAG), so there's
+nothing to fail over. A complete DR drill would also kill at the infrastructure layer (e.g. an NSG
+deny or node-pool stop) and measure a real region's control-plane loss.
+
+### Edge WAF — managed + custom rules
+
+The Front Door WAF runs the **Microsoft DefaultRuleSet 2.1** (189 managed OWASP rules, Block-on-
+Anomaly) plus a **custom rule** authored in Terraform that blocks mobile clients at the edge:
+
+```
+normal client                                                 → 200
+User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 ...)      → 403   (blocked at AFD)
+User-Agent: Mozilla/5.0 (Linux; Android 14; Pixel 8)         → 403   (blocked at AFD)
+```
+
+The block happens at Front Door — the request never reaches an App Gateway, a cluster, or the model.
+
+### One Grafana, both regions
+
+Both clusters scrape into a single Azure Monitor workspace (`amw-llmops-dr-rbpal`) rendered in one
+Managed Grafana. The **Fleet View** shows `aks-eastus2-rbpal` and `aks-centralus-rbpal` on the same
+panels (traffic, drops, per-node) — a single pane for the whole fleet. Per-region drill-downs give
+egress/ingress bytes & packets and a drops-by-reason breakdown.
+
+> The clean, unambiguous failover proof is the **Front Door Origin Health** chart in the failover
+> section above (eastus2 → 0%, centralus → 100%). On the cluster-network dashboards the same kill
+> appears only *indirectly* — as a connection-drop spike, since the node stays up when just the pod
+> is scaled to zero — so it isn't used here as the failover evidence.
 
 ## Workflow narrative — how this changes an accountant's day
 

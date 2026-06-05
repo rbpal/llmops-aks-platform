@@ -50,6 +50,27 @@ resource "azurerm_cdn_frontdoor_firewall_policy" "waf" {
     version = "2.1"
     action  = "Block"
   }
+
+  # Demo/teaching custom rule: block mobile clients at the GLOBAL edge by User-Agent.
+  # Blocks before the request ever reaches a region (cheapest place to drop traffic).
+  # NOTE: User-Agent is trivially spoofable — this is for understanding WAF custom rules,
+  # not a real security control. Lowercase transform makes the match case-insensitive.
+  custom_rule {
+    name     = "BlockMobileUserAgents"
+    enabled  = true
+    priority = 100
+    type     = "MatchRule"
+    action   = "Block"
+
+    match_condition {
+      match_variable     = "RequestHeader"
+      selector           = "User-Agent"
+      operator           = "Contains"
+      negation_condition = false
+      match_values       = ["iphone", "android"]
+      transforms         = ["Lowercase"]
+    }
+  }
 }
 
 resource "azurerm_cdn_frontdoor_security_policy" "sec" {
