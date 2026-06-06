@@ -88,6 +88,70 @@ LANE 3 — EVAL  (used only by the CI gate, never served)
 The **vector store is the hinge**: Lane 1 fills it, Lane 2 reads it, Lane 3 exercises all
 of Lane 2 to grade it before anything ships.
 
+### Network architecture — every region, CIDR & hop
+
+The three lanes above are the *logical* view. Physically, the query lane runs on the active-active
+estate below. Every address is real and taken from `infradr.auto.tfvars`; the two regions use
+**non-overlapping** CIDRs on purpose — the Virtual WAN hub-to-hub mesh requires it.
+
+| Region | Hub CIDR | VNet | appgw subnet | aks subnet | internal LB | pod / svc CIDR | hub firewall IP |
+|---|---|---|---|---|---|---|---|
+| **eastus2** ★ | `10.100.0.0/24` | `10.10.0.0/16` | `10.10.1.0/24` | `10.10.2.0/23` | `10.10.2.250` | `10.110.0.0/16` · `10.210.0.0/16` | `10.100.0.132` |
+| **centralus** ★ | `10.200.0.0/24` | `10.20.0.0/16` | `10.20.1.0/24` | `10.20.2.0/23` | `10.20.2.250` | `10.120.0.0/16` · `10.220.0.0/16` | `10.200.0.x` |
+
+Pod (`10.1x0/16`) and service (`10.2x0/16`) ranges are **CNI-Overlay** — off-VNet, never consume
+VNet address space, never need to be non-overlapping with anything routable. DNS is `<svc>.0.10`.
+
+```
+                         public clients  →  ep-llmops-rbpal.z01.azurefd.net   (HTTPS)
+                                              │
+        ┌─────────────────────────────── [Azure Front Door Premium] ───────────────────────────────┐
+        │ WAF DefaultRuleSet 2.1 (Prevention) · TLS terminates · origin-group og-genai · probe /healthz 30s │
+        │ origin-eastus2  pri 1 / wt 1000 ★      origin-centralus pri 1 / wt 1000 ★   (50/50 active-active)  │
+        │ route /*  →  injects  X-Azure-FDID = <our FDID>  on EVERY request (incl. health probes)            │
+        └───────────────────────┬───────────────────────────────────────────┬──────────────────────┘
+                  appgw FQDN     │ HttpOnly                        appgw FQDN │ HttpOnly
+   ╔══════════════ REGION eastus2 ★ ══════════════╗   ╔══════════════ REGION centralus ★ ════════════╗
+   │ pip-appgw-eastus2  →  snet-appgw 10.10.1.0/24 │   │ pip-appgw-centralus → snet-appgw 10.20.1.0/24 │
+   │ ┌───────────────────────────────────────────┐│   │ ┌───────────────────────────────────────────┐│
+   │ │ App Gateway WAF_v2  agw-eastus2  (1→2)     ││   │ │ App Gateway WAF_v2  agw-centralus (1→2)    ││
+   │ │  listener :80 · probe GET /healthz         ││   │ │  listener :80 · probe GET /healthz         ││
+   │ │  custom rule AllowOnlyOurFrontDoor (BLOCK) ││   │ │  custom rule AllowOnlyOurFrontDoor (BLOCK) ││
+   │ │    if X-Azure-FDID != <our FDID> → 403     ││   │ │    if X-Azure-FDID != <our FDID> → 403     ││
+   │ │  managed OWASP 3.2 (Prevention)            ││   │ │  managed OWASP 3.2 (Prevention)            ││
+   │ │  rewrite +X-Served-Region: eastus2         ││   │ │  rewrite +X-Served-Region: centralus       ││
+   │ └──────────────┬────────────────────────────┘│   │ └──────────────┬────────────────────────────┘│
+   │   backend → internal LB 10.10.2.250 :80       │   │   backend → internal LB 10.20.2.250 :80       │
+   │                ▼                               │   │                ▼                               │
+   │ ┌───────────────────────────────────────────┐│   │ ┌───────────────────────────────────────────┐│
+   │ │ AKS aks-eastus2   snet-aks 10.10.2.0/23    ││   │ │ AKS aks-centralus snet-aks 10.20.2.0/23    ││
+   │ │  CNI Overlay · pod 10.110/16 · svc 10.210/16││   │ │  CNI Overlay · pod 10.120/16 · svc 10.220/16││
+   │ │  Workload Identity (keyless AAD)           ││   │ │  Workload Identity (keyless AAD)           ││
+   │ │  pod genai-api:8000  (re-checks FDID)      ││   │ │  pod genai-api:8000  (re-checks FDID)      ││
+   │ │  egress: userDefinedRouting 0/0 ──┐        ││   │ │  egress: userDefinedRouting 0/0 ──┐        ││
+   │ └───────────────────────────────────┼────────┘│   │ └───────────────────────────────────┼────────┘│
+   │  0/0 → 10.100.0.132 (hub FW)         ▼         │   │  0/0 → hub FW (10.200.0.0/24)       ▼         │
+   ╚═════════════════════════════════════╪═════════╝   ╚═════════════════════════════════════╪═════════╝
+                                          ▼                                                   ▼
+        [Azure Firewall afw-eastus2  AZFW_Hub]                    [Azure Firewall afw-centralus AZFW_Hub]
+                                          │  routing intent: Internet + Private → firewall    │
+                                          └──────────────► [Log Analytics law-afw-rbpal] ◄────┘  (every flow logged)
+                                          ▲                                                   ▲
+        ┌──── [Virtual WAN vwan-llmops-rbpal] ────────────────────────────────────────────────────────┐
+        │  hub-eastus2 10.100.0.0/24  ◀══════════════ hub-to-hub auto-mesh ══════════════▶ hub-centralus 10.200.0.0/24 │
+        │  shared firewall policy afwp-llmops-rbpal  (one policy, both firewalls)                        │
+        └──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+   image supply:  ACR acrllmopsdrrbpal (Premium, geo-replicated)  →  local replica per region, AcrPull via MI
+```
+
+**How to read it:** a request enters once at Front Door (the only public name), is OWASP-scanned at
+the edge, then again at whichever region's App Gateway, which refuses anything not carrying *our*
+`X-Azure-FDID`. It crosses to the cluster only via the **internal** LB (`10.x.2.250`, no public IP on
+the pod path), the app re-checks the FDID, and any outbound call leaves through that region's Azure
+Firewall — the single, logged egress door. The two regions are symmetric and meshed privately over
+the vWAN for east-west DR traffic.
+
 ## Active-active multi-region platform (infra-dr/)
 
 The three lanes above run *inside* a pod; this is the active-active platform that pod runs
