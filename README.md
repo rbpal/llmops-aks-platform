@@ -113,11 +113,6 @@ client ─► AFD (WAF · TLS · /healthz LB · 50/50 weight)
 | Image supply | `acr` | One Premium registry, geo-replicated to both regions; each cluster pulls a local replica (AcrPull via managed identity, Admin user off) |
 | Observability | `observability` | Both regions feed one Azure Monitor (Prometheus) workspace + one Managed Grafana — single-pane fleet view (DCE/DCR co-located with the workspace region) |
 
-📐 **Full annotated diagram:** a standalone styled HTML page is maintained in the project's
-private docs (`privatedocs/dr-topology.html`, not published) — every box maps to a real Terraform
-resource, with the address plan, firewall egress allow-list, NSG rules, and identity wiring. Open
-in a browser, or print to PDF (the page ships a print stylesheet).
-
 > Status: **built, tested end-to-end, failover-proven, then torn down.** A single `terraform apply`
 > in `infra-dr/` stands up **68 resources** across `eastus2` + `centralus`; the app was deployed to
 > both regions, exercised through Front Door (live demo below), and a real **failover drill** was run
