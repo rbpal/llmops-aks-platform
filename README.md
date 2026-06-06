@@ -526,18 +526,28 @@ kustomize · Terraform (azurerm) · GitHub Actions · Azure Monitor Managed Prom
 
 ## Build plan
 
-Step-by-step build with `step_XX_taskYY` tasks and per-task acceptance checks. Code stubs
-are marked `# TODO(step_XX_taskYY)`.
+The build arc, as `step_XX_taskYY` milestones with per-task acceptance checks. Steps 00–06 build
+and harden the **application**; 07–08 stand up, prove, and tear down the **platform**. (This is the
+shipped state — deployed, failover-tested, and torn down — not a skeleton to fill.)
 
 - **step_00** Bootstrap & smoke tests (venv, Foundry, kind, terraform validate)
-- **step_01** Spine: FastAPI + config + LLM router (OpenAI + Anthropic) + RAG + agent
+- **step_01** Spine: FastAPI + config + LLM router (Azure OpenAI **keyless via AAD** + Anthropic) + RAG + agent
 - **step_02** PII tokenization + vault (Key Vault primary)
 - **step_03** Containerize + 3 namespaces on kind
 - **step_04** Eval gate (LLM-as-judge) — the centerpiece; CI blocks regressions
 - **step_05** Guardrails + prompt registry audit + CD promotion
 - **step_06** Observability — Azure-native Prometheus + Grafana, per-provider + cost
-- **step_07** Active-active multi-region platform (`infra-dr/`) — Front Door + per-region {App Gateway WAF, AKS 1->3 autoscale, Azure Firewall via vWAN}, geo-replicated ACR, one Prometheus+Grafana; 50/50 load-balanced and failover-tested
-- **step_08** Wrap up + teardown (`terraform destroy` — the A/A meter is heavy, tear down after each run)
+- **step_07** Active-active multi-region platform (`infra-dr/`) — the **only** topology. Global Front
+  Door Premium (WAF DefaultRuleSet 2.1, TLS, two **50/50 weighted** origins) over `eastus2` +
+  `centralus`, each region = App Gateway WAF_v2 (managed OWASP 3.2 + `AllowOnlyOurFrontDoor`
+  `X-Azure-FDID` origin lock + `BlockMobileUserAgents`) → AKS (CNI-overlay, 1→3 autoscale,
+  **keyless Workload Identity** to Azure OpenAI) → Azure Firewall via vWAN routing intent (all egress
+  logged to Log Analytics). Geo-replicated Premium ACR, one Prometheus + Grafana fleet view.
+  **Failover proven live**: scale-to-zero → AFD origin health `eastus2 → 0%` / `centralus → 100%`,
+  **RTO ~100 s / RPO ~0**.
+- **step_08** Teardown (`terraform destroy`) — the A/A meter is heavy (2× Firewall, 2× AKS, AFD
+  Premium), so the estate is destroyed after each exercise and re-applied identically; nothing is
+  left running.
 
 The system runs as three data lanes — **Ingestion** (corpus → tokenize PII → chunk →
 embed → vector store), **Query** (guards → retrieve → assemble versioned prompt → LLM
