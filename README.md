@@ -232,17 +232,21 @@ What this one call proves:
 
 ### Active-active load balancing — proven
 
-With the app deployed to **both** regions, Front Door splits traffic 50/50 across the two
-origins. Twenty identical requests through the AFD endpoint:
+With the app deployed to **both** regions, Front Door weight-splits traffic across the two origins.
+Twenty identical requests through the AFD endpoint, from the recorded run:
 
 ```
 $ for i in $(seq 1 20); do curl -s .../chat -d '{"question":"..."}' | jq -r .region; done | sort | uniq -c
-  10 centralus
-  10 eastus2
+  12 centralus
+   8 eastus2
 ```
 
-A clean 10/10 split — the `region` field in each response is the proof of *which* origin served
-it. Failover is the same mechanism: delete one region's deployment and its App Gateway origin goes
+A **12 / 8** split — the `region` field in each response (stamped per region by the App Gateway
+rewrite as `X-Served-Region`) is the proof of *which* origin served it, so a response tagged
+`eastus2` could only have come via the eastus2 gateway. With 20 calls against an even weight, the
+ratio varies around 50/50 by chance — 12/8 is exactly the kind of small-sample spread you expect;
+the point is that **both** origins served real traffic concurrently. Failover is the same mechanism:
+delete one region's deployment and its App Gateway origin goes
 unhealthy on the AFD health probe, so all traffic shifts to the survivor (flip an origin's priority
 in `infradr.auto.tfvars` to switch to active-passive instead).
 
