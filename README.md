@@ -587,7 +587,7 @@ table below is how you'd cut the bill if it had to *stay running*.
 
 | Resource (this build) | Main cost driver | How to cut it | Trade-off |
 |---|---|---|---|
-| **Azure Firewall ×2** (`AZFW_Hub`, Standard) | fixed hourly + per-GB data processing — usually the **single biggest line item** | drop to **Firewall Basic** for low throughput; or replace with **NSG + NAT Gateway** for egress if you don't need FQDN/threat-intel filtering; run the firewall only in the **active** region | lose centralized L7 egress filtering / lose the passive region's egress audit |
+| **Azure Firewall ×2** (`AZFW_Hub`, Standard) | fixed hourly + per-GB processing — usually the **single biggest line item**. In a **vWAN secured hub** this cost is **structural**: Firewall **Basic isn't supported** in a secured hub, and a **NAT Gateway can't live in a vWAN hub**, so the usual VNet egress-cheapening tricks don't apply here | cut it by **topology/region**, not by tweaking the firewall — go **active-passive single-region** (removes the 2nd hub + firewall outright), or move off vWAN to a **classic VNet hub-spoke** where egress *can* use **NSG + NAT Gateway** instead of a firewall | dropping a region raises RTO; leaving vWAN means hand-managed peering/routing and losing routing-intent |
 | **Front Door Premium** | base monthly + WAF + per-request + data out | drop to **Standard** if you only need custom rules (no managed rule sets / Private Link origins) | lose managed OWASP rule sets and Private Link to origin |
 | **App Gateway WAF_v2 ×2** | hourly + **capacity units** (scale) | lower **min capacity units**, autoscale tighter, run the standby at min in **active-passive**; or rely on the edge WAF alone | lose the per-region WAF backstop; cold-start latency on scale-up |
 | **AKS node pools ×2** | **VM compute** — the biggest *variable* cost | **Spot** node pool for the stateless app (up to **~90% off**) + small on-demand system pool; **cluster-autoscaler scale-to-zero** on idle user pools; **Reserved Instances / Savings Plans** for the always-on baseline (**~40–65% off**, 1–3 yr); right-size SKU (`D2s_v3` → burstable `B`-series for dev) | Spot can be evicted (fine for stateless + multi-region); RI/SP = a commitment |
@@ -597,6 +597,12 @@ table below is how you'd cut the bill if it had to *stay running*.
 | **Log Analytics** (firewall logs) | **ingestion + retention** ($/GB) | **Basic Logs** tier for high-volume/low-query data, shorter retention, **commitment tiers**, sampling | Basic Logs limit query/alerting features |
 | **Azure OpenAI** | **per-token** | smaller model (`gpt-4o-mini`), **PTU** (provisioned throughput) for steady high load vs pay-go for spiky, **semantic/response caching**, prompt compression, cap `max_tokens` | PTU = commitment; smaller model = some quality |
 | **Public IPs / egress** | cross-region + internet egress per GB | minimize cross-region chatter; one **SNAT IP** per region (already) | minor |
+
+> **What this build actually uses:** of the "How to cut it" column, this estate uses **only**
+> teardown (ephemeral) + the $200/mo budget alert + one shared Prometheus/Grafana + one SNAT IP.
+> It deliberately does **not** use Spot, Reserved Instances, or Savings Plans — those are 1–3 yr
+> commitments for an *always-on* estate, which is the opposite of destroy-after-use. They're listed
+> as the right levers for a **production** deployment, not claims about this lab.
 
 ### The biggest levers, ranked
 
