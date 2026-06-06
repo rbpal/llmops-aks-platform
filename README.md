@@ -345,15 +345,22 @@ deny or node-pool stop) and measure a real region's control-plane loss.
 ### Edge WAF — managed + custom rules
 
 The Front Door WAF runs the **Microsoft DefaultRuleSet 2.1** (189 managed OWASP rules, Block-on-
-Anomaly) plus a **custom rule** authored in Terraform that blocks mobile clients at the edge:
+Anomaly) plus a **custom rule** authored in Terraform (`BlockMobileUserAgents`) configured to block
+mobile clients at the edge by `User-Agent`. The rule's **defined behaviour**:
 
 ```
 normal client                                                 → 200
-User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 ...)      → 403   (blocked at AFD)
-User-Agent: Mozilla/5.0 (Linux; Android 14; Pixel 8)         → 403   (blocked at AFD)
+User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 ...)      → 403   (expected: blocked at AFD)
+User-Agent: Mozilla/5.0 (Linux; Android 14; Pixel 8)         → 403   (expected: blocked at AFD)
 ```
 
-The block happens at Front Door — the request never reaches an App Gateway, a cluster, or the model.
+When it blocks, it blocks at Front Door — the request never reaches an App Gateway, a cluster, or
+the model.
+
+> **Status: configured, not yet evidenced on the live estate.** The rule *is* in place — see the
+> portal screenshot in the [Security](#security--defense-in-depth) section — so the **configuration**
+> is proven. The `403`s above are the rule's intended behaviour, not a captured run. A behavioural
+> capture (a real `curl` returning `403` through Front Door) is a pending to-do.
 
 ---
 
