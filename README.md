@@ -571,6 +571,58 @@ datastore for state. The architecture is production-shaped; the *settings* are d
 
 ---
 
+## Cost control — where the money goes, and how to cut it
+
+Cloud cost (FinOps) is a first-class engineering concern, not an afterthought — an over-provisioned
+platform quietly burns budget that could fund the next feature. This build deliberately runs the
+*expensive* shape (active-active, premium tiers) to prove the architecture, which makes it a clean
+lens for the real question every org asks: **where would the bill actually go, and how do you cut it
+without losing the capability?**
+
+This estate already applies the strongest control there is: it is **ephemeral** — `terraform
+destroy` after every exercise (idle cost → **$0**) — and guarded by a **$200/mo budget alert**. The
+table below is how you'd cut the bill if it had to *stay running*.
+
+### Per-resource cost drivers and savings
+
+| Resource (this build) | Main cost driver | How to cut it | Trade-off |
+|---|---|---|---|
+| **Azure Firewall ×2** (`AZFW_Hub`, Standard) | fixed hourly + per-GB data processing — usually the **single biggest line item** | drop to **Firewall Basic** for low throughput; or replace with **NSG + NAT Gateway** for egress if you don't need FQDN/threat-intel filtering; run the firewall only in the **active** region | lose centralized L7 egress filtering / lose the passive region's egress audit |
+| **Front Door Premium** | base monthly + WAF + per-request + data out | drop to **Standard** if you only need custom rules (no managed rule sets / Private Link origins) | lose managed OWASP rule sets and Private Link to origin |
+| **App Gateway WAF_v2 ×2** | hourly + **capacity units** (scale) | lower **min capacity units**, autoscale tighter, run the standby at min in **active-passive**; or rely on the edge WAF alone | lose the per-region WAF backstop; cold-start latency on scale-up |
+| **AKS node pools ×2** | **VM compute** — the biggest *variable* cost | **Spot** node pool for the stateless app (up to **~90% off**) + small on-demand system pool; **cluster-autoscaler scale-to-zero** on idle user pools; **Reserved Instances / Savings Plans** for the always-on baseline (**~40–65% off**, 1–3 yr); right-size SKU (`D2s_v3` → burstable `B`-series for dev) | Spot can be evicted (fine for stateless + multi-region); RI/SP = a commitment |
+| **Virtual WAN (2 hubs)** | hub hourly + per-GB routed | for just **2 regions**, classic **hub-spoke + VNet peering** (with an NVA/firewall) is cheaper; vWAN earns its keep at many spokes/regions | lose auto-mesh + routing-intent convenience |
+| **ACR Premium** (geo-replicated) | Premium base + **per replica region** | **Standard** if you don't need geo-replication / Private Link (pull cross-region with caching) | slower cross-region pulls; no local replica if a region is down |
+| **Managed Prometheus + Grafana** | metric **ingestion** (per sample) + Grafana instance hours | cut **scrape cardinality / sample**, shorten retention, keep **one shared instance** (already done) | less granular / shorter history |
+| **Log Analytics** (firewall logs) | **ingestion + retention** ($/GB) | **Basic Logs** tier for high-volume/low-query data, shorter retention, **commitment tiers**, sampling | Basic Logs limit query/alerting features |
+| **Azure OpenAI** | **per-token** | smaller model (`gpt-4o-mini`), **PTU** (provisioned throughput) for steady high load vs pay-go for spiky, **semantic/response caching**, prompt compression, cap `max_tokens` | PTU = commitment; smaller model = some quality |
+| **Public IPs / egress** | cross-region + internet egress per GB | minimize cross-region chatter; one **SNAT IP** per region (already) | minor |
+
+### The biggest levers, ranked
+
+1. **Active-passive instead of active-active** — the single biggest *architectural* lever. The
+   standby region runs at minimum (or scaled to zero) until failover, roughly **halving** steady-state
+   compute, firewall, and gateway cost. In this build it's **one flag** (`centralus` origin
+   `priority = 2`). Trade-off: higher RTO (cold/warm standby instead of already-hot).
+2. **Reserved Instances / Savings Plans** for the predictable baseline — ~40–65% off for a 1–3 yr
+   commit. Best for the always-on system node pool you know you'll keep.
+3. **Spot** for fault-tolerant / stateless workloads — up to ~90% off; ideal here because the app is
+   stateless and replicated across regions.
+4. **Autoscale + scale-to-zero** — pay for the load you have, not the peak you fear.
+5. **Right-size and tier-down** — match SKU and service tier (Basic vs Premium) to what the workload
+   actually uses; premium tiers should be a deliberate choice, not a default.
+6. **Ephemeral non-prod** — destroy idle environments (this build's default; the ultimate saving is
+   **$0**).
+7. **FinOps hygiene** — tag every resource for showback/chargeback, set **budgets + alerts** (this
+   build has a $200/mo alert), and review cost regularly so drift is caught early.
+
+> **The cost-control mindset:** pay for the capability you're using *right now*, *commit* to the
+> baseline you know you'll keep, and make everything else **elastic or ephemeral**. For this estate,
+> the most honest single number is its idle cost — **zero** — because the cheapest resource is the
+> one that isn't running.
+
+---
+
 ## Quickstart
 ```bash
 # install uv if needed: curl -LsSf https://astral.sh/uv/install.sh | sh
