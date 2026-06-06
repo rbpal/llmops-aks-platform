@@ -370,13 +370,21 @@ generic attacks before they cost a region anything. The App Gateway WAF is the b
 is tuned looser at the edge, or an attacker reaches the origin FQDN directly, the regional WAF +
 the `X-Azure-FDID` lock still stand. Bypassing one does not bypass the other.
 
-**The `X-Azure-FDID` trick — the important one.** An origin behind Front Door is reachable on a
-public FQDN, and the `AzureFrontDoor.Backend` service tag that the NSG allows is shared by *every*
-tenant's Front Door. Without more, anyone could stand up their own Front Door, point it at our
-origin, and ride straight past the NSG. The App Gateway WAF rule fixes that by requiring the
-`X-Azure-FDID` header (which Front Door injects and a client cannot forge end-to-end) to equal *our*
-profile's GUID — so only **our** Front Door is a valid front door. The app re-checks the same header
-(layer 4), so the lock holds even if the gateway rule were misconfigured.
+**Origin lock-down via `X-Azure-FDID`.** An origin behind Front Door is reachable on a public FQDN,
+and the `AzureFrontDoor.Backend` service tag that the NSG admits is shared by *every* tenant's Front
+Door. On its own, that means a third party could provision their own Front Door, point it at our
+origin, and pass the NSG check. The App Gateway WAF custom rule `AllowOnlyOurFrontDoor` closes that
+gap: it requires the `X-Azure-FDID` header — which Front Door injects on every request and a client
+cannot forge end-to-end — to equal *our* profile's GUID, so only **our** Front Door is accepted as a
+valid origin caller. The application re-validates the same header before serving `/chat`, so the
+control holds even if the gateway rule were misconfigured.
+
+![App Gateway WAF custom rule AllowOnlyOurFrontDoor — Deny traffic, priority 1, when X-Azure-FDID is not equal to our Front Door GUID (Lowercase transform)](docs/images/dr-appgw-fdid-rule.png)
+
+*App Gateway WAF policy `waf-eastus2-rbpal` → custom rule `AllowOnlyOurFrontDoor` (priority 1,
+**Deny traffic**). The condition matches `Request headers → X-Azure-FDID` with **Is not Equal** to
+our Front Door's GUID, with a Lowercase transform so the GUID comparison is case-insensitive. Any
+request whose header is absent or does not match is blocked before it reaches the cluster.*
 
 **Honest scope — what is demo-grade, not production-hardened.** Two controls are deliberately
 teaching-grade and labelled as such in Terraform: (1) the edge `BlockMobileUserAgents` rule keys on
