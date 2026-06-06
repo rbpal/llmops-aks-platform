@@ -47,6 +47,8 @@ over time? That is the LLMOps problem this project solves.
 drift can cost more than the whole initiative saves — which is exactly why firms stall at
 the pilot stage. This backbone is what lets them actually deploy.
 
+---
+
 ## Architecture — the three data lanes
 
 ```
@@ -152,6 +154,8 @@ the pod path), the app re-checks the FDID, and any outbound call leaves through 
 Firewall — the single, logged egress door. The two regions are symmetric and meshed privately over
 the vWAN for east-west DR traffic.
 
+---
+
 ## Active-active multi-region platform (infra-dr/)
 
 The three lanes above run *inside* a pod; this is the active-active platform that pod runs
@@ -184,6 +188,8 @@ client ─► AFD (WAF · TLS · /healthz LB · 50/50 weight)
 > no single-region alternative. It carries a heavy meter (2× Azure Firewall, 2× AKS, AFD Premium), so
 > it is guarded by a $200/mo budget alert and **destroyed after each exercise** (`terraform destroy`);
 > re-`apply` brings it back identically.
+
+---
 
 ## Live demo — PII-safe query through Front Door
 
@@ -349,6 +355,8 @@ User-Agent: Mozilla/5.0 (Linux; Android 14; Pixel 8)         → 403   (blocked 
 
 The block happens at Front Door — the request never reaches an App Gateway, a cluster, or the model.
 
+---
+
 ## Security — defense in depth
 
 Security is layered so that no single control is load-bearing: the edge, the regional ingress, the
@@ -443,6 +451,8 @@ FQDN tag, `AzureCloud`, DNS/NTP) that sits beneath it. Origin traffic between Fr
 Gateway runs on `:80` (the FDID lock, not mTLS, is the origin trust boundary) — a production build
 would add end-to-end TLS to the origin.
 
+---
+
 ## Observability — one Grafana, both regions
 
 Both clusters scrape into a single Azure Monitor workspace (`amw-llmops-dr-rbpal`) rendered in one
@@ -467,6 +477,8 @@ one hot and one cold.
 > appears only *indirectly* — as a connection-drop spike, since the node stays up when just the pod
 > is scaled to zero — so it isn't used here as the failover evidence.
 
+---
+
 ## What it shows
 - **Eval gate as a deploy gate** — golden set + LLM-as-judge scoring correctness,
   groundedness, refusal rate, and PII leakage; a failing score blocks the merge.
@@ -481,6 +493,8 @@ one hot and one cold.
 - **Azure-native observability** — the app emits tokens, cost, latency, and failure
   metrics in Prometheus format; **Azure Monitor Managed Prometheus** scrapes them on
   AKS and **Azure Managed Grafana** visualizes them (both provisioned in Terraform).
+
+---
 
 ## Trade-offs — this is a lab/demo, and that drove real decisions
 
@@ -506,6 +520,8 @@ reversibility, and teachability**, and every divergence is one well-marked switc
 harder choice — delete a rule for deny-by-default, flip a priority for active-passive, add a
 datastore for state. The architecture is production-shaped; the *settings* are dialled to demo.
 
+---
+
 ## Quickstart
 ```bash
 # install uv if needed: curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -519,10 +535,14 @@ make eval                 # run the eval gate
 ```
 
 
+---
+
 ## Stack
 FastAPI + (LangGraph) agent · Azure AI Search (FAISS local fallback) · Azure OpenAI
 (Foundry: gpt-4o-mini + text-embedding-3-small) · uv · Docker · kind (local) / AKS (cloud) ·
 kustomize · Terraform (azurerm) · GitHub Actions · Azure Monitor Managed Prometheus + Managed Grafana.
+
+---
 
 ## Build plan
 
