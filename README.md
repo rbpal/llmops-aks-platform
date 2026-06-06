@@ -386,6 +386,49 @@ control holds even if the gateway rule were misconfigured.
 our Front Door's GUID, with a Lowercase transform so the GUID comparison is case-insensitive. Any
 request whose header is absent or does not match is blocked before it reaches the cluster.*
 
+**Application-layer policy by header filtering — the mobile-client block.** Because a WAF operates
+at **Layer 7**, a custom rule can match on any part of an HTTP request — method, URI, query string,
+cookies, body, or any header — and apply an action (Allow / Block / Log / rate-limit). That makes the
+WAF a place to express *application policy*, not only attack signatures. The Front Door rule
+`BlockMobileUserAgents` is an example: it inspects the `User-Agent` request header and denies the
+request at the global edge when it contains `iphone` or `android` (a Lowercase transform makes the
+match case-insensitive), so a mobile client is turned away at the nearest PoP before any region is
+involved.
+
+![Front Door WAF custom rule BlockMobileUserAgents — Deny traffic, priority 100, when the User-Agent header contains iphone or android (Lowercase transform)](docs/images/dr-afd-mobile-block-rule.png)
+
+*Front Door WAF policy `afdwafrbpal` → custom rule `BlockMobileUserAgents` (priority 100, **Deny
+traffic**). Condition: `Request header → User-Agent` **Contains** `iphone` or `android`, Lowercase
+transform — evaluated at the global edge.*
+
+> **Important — this is steering policy, not a security boundary.** `User-Agent` is set by the
+> client and is trivially spoofable, so this rule is a way to *route or refuse* a class of client
+> (e.g. push mobile users to a dedicated app), not to authenticate anyone. It demonstrates how L7
+> header filtering is authored; the `X-Azure-FDID` rule above uses the *same* mechanism for a control
+> that **is** meaningful, precisely because that header is injected by Front Door, not the client.
+
+**Where each filter sits — L7 vs L3/L4.** It is worth being precise about layers, because the WAF
+and the NSG/firewall are not interchangeable:
+
+| Layer | Component (this build) | Inspects | Example here |
+|---|---|---|---|
+| **L3 / L4** (network) | **NSG** on each subnet | source/dest **IP & CIDR** (service tags), **ports**, protocol — stateless, no HTTP awareness | admit only `AzureFrontDoor.Backend` on TCP 80/443; deny all else |
+| **L3 / L4 + FQDN** | **Azure Firewall** (egress) | network rules (IP/port) plus application rules (FQDN) | AKS egress to the `AzureKubernetesService` FQDN tag, `AzureCloud`, DNS/NTP |
+| **L7** (HTTP) | **Front Door WAF + App Gateway WAF** | HTTP **headers, URI, body, cookies, method**; managed OWASP signatures | `User-Agent` block, `X-Azure-FDID` lock, OWASP rule sets |
+
+A WAF is an L7 service: it only sees a request *after* TLS termination and HTTP parsing, so it can
+reason about the application protocol (headers, paths, payloads). The NSG and the firewall's network
+rules work **below** that, on the IP/port 5-tuple, and never read the payload — they drop a
+disallowed source before the HTTP engine is ever reached. The two layers compose: the NSG narrows
+*who* can open a connection (only Azure Front Door's backend range), and the WAF then decides *what*
+that connection is allowed to ask for.
+
+One nuance for completeness: Azure WAF custom rules can *also* match on the client IP (`RemoteAddr` /
+`SocketAddr`) and on geography (`GeoMatch`), so an IP- or country-based allow/deny **can** be
+expressed inside the WAF. That is an L3 *attribute* being evaluated by the L7 engine — useful, but
+distinct from a true stateless L3/L4 filter. Coarse network filtering belongs on the NSG and the
+firewall; HTTP-aware policy belongs on the WAF.
+
 **Honest scope — what is demo-grade, not production-hardened.** Two controls are deliberately
 teaching-grade and labelled as such in Terraform: (1) the edge `BlockMobileUserAgents` rule keys on
 `User-Agent`, which is trivially spoofable — it demonstrates *how* a WAF custom rule is authored, it
