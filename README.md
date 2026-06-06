@@ -604,6 +604,26 @@ table below is how you'd cut the bill if it had to *stay running*.
 > commitments for an *always-on* estate, which is the opposite of destroy-after-use. They're listed
 > as the right levers for a **production** deployment, not claims about this lab.
 
+### Token cost — prompt & context engineering
+
+Azure OpenAI bills **input + output tokens**, and **output is ~3–4× the input rate** — so the volume
+is in the input (the system prompt + retrieved context, resent every call) and the unit cost is in
+the output. The four highest-leverage wins for a RAG app like this:
+
+1. **Tune `top_k` + rerank** — the retrieved chunks are the largest input block; retrieve broadly,
+   then rerank and inject only the top few (same recall, far fewer tokens).
+2. **Prompt-cache the static prefix** — the system prompt and versioned template are stable and sent
+   on every request; caching bills those repeated tokens at a steep discount.
+3. **Concise, source-ID-only answers** — instruct for brevity and cite `[source: file.md]` rather
+   than re-quoting passages; this cuts the *expensive* output tokens.
+4. **Model cascade** — `gpt-4o-mini` for the easy majority, escalate to `gpt-4o` only when a
+   complexity/confidence gate demands it.
+
+> **Why this is safe to do aggressively:** trimming context or shrinking output risks silently
+> dropping answer quality — but every change here is re-run through the **[eval gate](#how-the-eval-gate-works)**,
+> which fails the build if `correctness` or `grounded` falls below threshold. Cost and quality are
+> coupled, and the eval is what lets you chase token savings without flying blind.
+
 ### The biggest levers, ranked
 
 1. **Active-passive instead of active-active** — the single biggest *architectural* lever. The
