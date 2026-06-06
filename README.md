@@ -281,6 +281,49 @@ User-Agent: Mozilla/5.0 (Linux; Android 14; Pixel 8)         → 403   (blocked 
 
 The block happens at Front Door — the request never reaches an App Gateway, a cluster, or the model.
 
+## Security — defense in depth
+
+Security is layered so that no single control is load-bearing: the edge, the regional ingress, the
+network, the identity plane, and the egress path each remove a different class of attack. A request
+has to clear all of them before it reaches the model, and the cluster can only talk back out through
+one audited door. Every control below is declared in Terraform — there is no click-ops drift.
+
+| # | Layer | Control | What it stops |
+|---|-------|---------|---------------|
+| 1 | **Global edge** | Front Door WAF — `Microsoft_DefaultRuleSet 2.1`, **Prevention/Block** mode + TLS termination at the anycast edge | OWASP top-10 (SQLi, XSS, RFI…) dropped before any traffic enters a region; HTTPS enforced at the closest PoP |
+| 2 | **Regional ingress** | App Gateway WAF_v2 — managed **OWASP 3.2** in **Prevention** mode | second, independent OWASP pass per region (edge bypass ≠ free pass) |
+| 3 | **Origin lock-down** | App Gateway custom rule `AllowOnlyOurFrontDoor` (priority 1, Block) — denies any request whose `X-Azure-FDID` header ≠ our profile's FDID | someone pointing **their own** Front Door at our public origin FQDN — the shared `AzureFrontDoor.Backend` service tag is narrowed to *only our* AFD |
+| 4 | **App-layer re-check** | pods carry `EXPECTED_FDID`; the app itself rejects `/chat` whose `X-Azure-FDID` mismatches | defense-in-depth — the origin lock is enforced again *inside* the app, not only at the gateway |
+| 5 | **Network segmentation** | NSG on every subnet; App Gateway subnet allows only `GatewayManager` (65200-65535), `AzureLoadBalancer` probes, and `AzureFrontDoor.Backend` on 80/443 — all else implicitly denied | lateral/inbound reach to the ingress subnet from anywhere but the gateway control plane and our edge |
+| 6 | **Keyless identity** | AKS Workload Identity (OIDC issuer + federated credential on `uami-openai-rbpal`); the app calls Azure OpenAI via **AAD token, no API key anywhere** | leaked/committed API keys — there are none to leak; rotation is automatic via AAD |
+| 7 | **Registry identity** | ACR `admin_enabled = false`; kubelet pulls via the **AcrPull** role on a managed identity | registry username/password sprawl; only the cluster's own identity can pull |
+| 8 | **Least-privilege RBAC** | each AKS identity gets `Network Contributor` scoped to **its own spoke VNet only** | a compromised cluster identity reaching beyond its region's network |
+| 9 | **Egress control** | AKS `outbound_type = userDefinedRouting` → `0.0.0.0/0` next hop is the **Azure Firewall** private IP; every flow is logged to Log Analytics | silent data exfiltration / unaudited outbound — the cluster has exactly one way out and it is recorded |
+| 10 | **Secrets** | Azure Key Vault is the primary store (encrypted-file fallback); `*.tfvars`, `.env`, state files all gitignored | secrets in source control or container images |
+
+**Why two WAFs (edge + regional)?** The edge WAF is cheap and global — it sheds volumetric and
+generic attacks before they cost a region anything. The App Gateway WAF is the backstop: if a rule
+is tuned looser at the edge, or an attacker reaches the origin FQDN directly, the regional WAF +
+the `X-Azure-FDID` lock still stand. Bypassing one does not bypass the other.
+
+**The `X-Azure-FDID` trick — the important one.** An origin behind Front Door is reachable on a
+public FQDN, and the `AzureFrontDoor.Backend` service tag that the NSG allows is shared by *every*
+tenant's Front Door. Without more, anyone could stand up their own Front Door, point it at our
+origin, and ride straight past the NSG. The App Gateway WAF rule fixes that by requiring the
+`X-Azure-FDID` header (which Front Door injects and a client cannot forge end-to-end) to equal *our*
+profile's GUID — so only **our** Front Door is a valid front door. The app re-checks the same header
+(layer 4), so the lock holds even if the gateway rule were misconfigured.
+
+**Honest scope — what is demo-grade, not production-hardened.** Two controls are deliberately
+teaching-grade and labelled as such in Terraform: (1) the edge `BlockMobileUserAgents` rule keys on
+`User-Agent`, which is trivially spoofable — it demonstrates *how* a WAF custom rule is authored, it
+is not a real access control; (2) the firewall ships a permissive `allow-all-egress-demo` rule so
+nothing fails silently at AKS bootstrap — it stays **in-path and logs every flow**, and deleting
+that one rule restores deny-by-default against the curated AKS egress allow-list (`AzureKubernetesService`
+FQDN tag, `AzureCloud`, DNS/NTP) that sits beneath it. Origin traffic between Front Door and the App
+Gateway runs on `:80` (the FDID lock, not mTLS, is the origin trust boundary) — a production build
+would add end-to-end TLS to the origin.
+
 ## Observability — one Grafana, both regions
 
 Both clusters scrape into a single Azure Monitor workspace (`amw-llmops-dr-rbpal`) rendered in one
