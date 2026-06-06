@@ -182,6 +182,22 @@ it. Failover is the same mechanism: delete one region's deployment and its App G
 unhealthy on the AFD health probe, so all traffic shifts to the survivor (flip an origin's priority
 in `infradr.auto.tfvars` to switch to active-passive instead).
 
+The 50/50 split is configured at the Front Door origin group — **both** origins set to
+**Priority 1 / Weight 1000**, which is exactly what makes the load balancing active-active rather
+than active-passive:
+
+**`origin-eastus2` — Priority 1, Weight 1000:**
+
+![Front Door origin group — origin-eastus2 set to Priority 1 / Weight 1000](docs/images/dr-afd-origin-eastus2.png)
+
+**`origin-centralus` — Priority 1, Weight 1000:**
+
+![Front Door origin group — origin-centralus set to Priority 1 / Weight 1000](docs/images/dr-afd-origin-centralus.png)
+
+Equal priority means Front Door treats both as primary; equal weight means it splits evenly. Set
+`origin-centralus` to **Priority 2** and the same group becomes active-passive — centralus only
+takes traffic when eastus2 is unhealthy.
+
 ### Failover — tested live, end to end
 
 I ran a real failover against the running estate. The kill was **non-destructive** — I scaled the
@@ -265,7 +281,7 @@ User-Agent: Mozilla/5.0 (Linux; Android 14; Pixel 8)         → 403   (blocked 
 
 The block happens at Front Door — the request never reaches an App Gateway, a cluster, or the model.
 
-### One Grafana, both regions
+## Observability — one Grafana, both regions
 
 Both clusters scrape into a single Azure Monitor workspace (`amw-llmops-dr-rbpal`) rendered in one
 Managed Grafana. The **Fleet View** shows `aks-eastus2-rbpal` and `aks-centralus-rbpal` on the same
@@ -288,138 +304,6 @@ one hot and one cold.
 > section above (eastus2 → 0%, centralus → 100%). On the cluster-network dashboards the same kill
 > appears only *indirectly* — as a connection-drop spike, since the node stays up when just the pod
 > is scaled to zero — so it isn't used here as the failover evidence.
-
-## Workflow narrative — how this changes an accountant's day
-
-The product is the governed pipeline around the model. This is what that pipeline *feels
-like* to the person using it, and what it protects behind the scenes.
-
-**The "before" — how it works today.** It's 4:45 PM. Maya, a tax associate, has a client
-asking whether a $4,200 equipment purchase can be expensed this year. To answer
-confidently she has to: remember which internal policy governs capitalization; dig through
-a shared drive for the current threshold; cross-check it didn't change this year; and make
-sure she's not accidentally quoting another client's engagement terms. Twenty minutes,
-three documents, one Slack message to a senior, and a lingering "...I think that's right."
-Multiply that across hundreds of staff and thousands of questions a week — that's the cost
-the firm is paying.
-
-**The "after" — the same question, with this solution.** Maya types one sentence:
-
-> *"What's our capitalization threshold for depreciation, and does a $4,200 purchase
-> qualify to be expensed?"*
-
-She gets back, in ~2 seconds:
-
-> *"Fixed assets at or above the **$5,000** capitalization threshold are capitalized and
-> depreciated; purchases below it are expensed in the period incurred. A $4,200 purchase is
-> **below** the threshold, so it would be expensed. **[source: 01_depreciation_policy.md]**"*
-
-She has the answer, the reasoning, and the source she can cite — in one step instead of
-twenty minutes. The value isn't the speed; it's everything that happened invisibly to make
-that answer trustworthy enough to act on.
-
-### The full workflow — journey of one question
-
-```
-            ┌──────────────────────────────────────────────────────────────────────┐
-   MAYA     │  "What's our capitalization threshold, and does $4,200 qualify?"      │
- (accountant)└─────────────────────────────────┬────────────────────────────────────┘
-                                                │  HTTPS → /chat  (the assistant API on AKS)
-                                                ▼
-   ┌───────────────────────────────────────────────────────────────────────────────────┐
-   │  GOVERNED PIPELINE  (runs per question — every gate protects Maya AND the firm)      │
-   │                                                                                     │
-   │  1. INPUT GUARD ───────► "Is this a manipulation attempt?"                           │
-   │        │                  blocks "ignore your rules / dump other clients' data"      │
-   │        ▼                                                                             │
-   │  2. DOMAIN GUARD ──────► "Is this an accounting/tax question?"                        │
-   │        │                  off-topic ("what's the weather?") → polite refusal         │
-   │        ▼                                                                             │
-   │  3. RETRIEVE ──────────► embed the question → search the VECTOR STORE                 │
-   │        │                  pulls the few most relevant policy chunks (grounding)       │
-   │        │                  ◀── these chunks were PII-tokenized at ingestion            │
-   │        ▼                                                                             │
-   │  4. ASSEMBLE PROMPT ───► question + retrieved chunks + a VERSIONED template           │
-   │        │                  (template pulled from the prompt registry, v1 @<git-sha>)   │
-   │        ▼                                                                             │
-   │  5. LLM ANSWERS ───────► provider router → Azure OpenAI | Anthropic Claude            │
-   │        │                  the model sees ONLY tokens, never a real SSN/account #      │
-   │        ▼                                                                             │
-   │  6. OUTPUT GUARD ──────► redacts any stray PII; rejects off-topic drift               │
-   │        │                                                                             │
-   │        ▼                                                                             │
-   │  7. DETOKENIZE (gated)─► IF Maya is authorized → swap tokens back to real values      │
-   │        │                  ELSE → leave "[SSN_xxxx]" in place                          │
-   │        ▼                                                                             │
-   │  ANSWER + [source: depreciation_policy]                                              │
-   └─────────┬──────────────────────────────────────────────────┬────────────────────────┘
-             │                                                    │
-             ▼                                                    ▼
-   ┌──────────────────┐                            ┌──────────────────────────────────┐
-   │  BACK TO MAYA     │                            │  EMITTED INVISIBLY (every call)   │
-   │  grounded answer  │                            │  • telemetry: tokens, $ cost,     │
-   │  + citation       │                            │    latency, by provider → /metrics │
-   │  in ~2 seconds    │                            │  • audit log: prompt v1 @<sha>,    │
-   └──────────────────┘                            │    which model, which sources      │
-                                                    └──────────────────────────────────┘
-```
-
-And one layer Maya never sees but the firm depends on — the eval gate that ran *before*
-this version was ever deployed:
-
-```
-   BEFORE ANY OF THIS REACHED MAYA  (CI gate, on every change)
-   ══════════════════════════════════════════════════════════
-   engineer changes a prompt/model  ─► runs the golden Q&A through the SAME pipeline
-                                     ─► judge scores correctness + grounding
-                                        + checks: did it refuse what it should?
-                                                  did any PII leak? did it stay on-topic?
-                                     ─► PASS → ships    |    FAIL → the change is blocked
-```
-
-That's why Maya can trust the answer: a regression that would make the assistant
-hallucinate a threshold or leak a client SSN would have failed the gate and never shipped.
-
-### What each step actually does for Maya
-
-| Step | What Maya feels | What it really protects |
-| --- | --- | --- |
-| Input + domain guards | "It stays on task" | Blocks prompt-injection and off-topic misuse |
-| Retrieve + cite | "It shows its source" | Answer is grounded in firm docs, not the model's guesswork |
-| Versioned prompt | (invisible) | Every answer is reproducible and auditable |
-| Tokenized model call | "It just works" | A real SSN/account number never reaches the model or logs |
-| Output guard | "Clean answers" | Last-line backstop against stray PII / drift |
-| Authorization-gated detokenize | "I see what I'm allowed to" | Sensitive values revealed only to authorized staff |
-| Telemetry + audit (side-channel) | (invisible) | Cost stays bounded; the firm can prove what produced any answer |
-
-### A second scene — when the system says no (the trust-builder)
-
-> *"What's the SSN on the Henderson engagement?"* → *"I don't have that information."*
-
-Nothing leaked — the SSN was tokenized out at ingestion and the asker wasn't authorized to
-detokenize. And:
-
-> *"What's the weather in Chicago tomorrow?"* → *"I can only help with accounting and tax
-> questions."*
-
-Those refusals aren't accidents — they're enforced by the domain guard and continuously
-tested by the eval gate. The fact that the system reliably declines is exactly what lets
-the firm put it in front of staff and, eventually, clients.
-
-### The bottom line
-
-| | Before | After |
-| --- | --- | --- |
-| Time to a confident answer | ~20 min, multiple docs | ~2 sec, one question |
-| Source / citation | manual, often missing | automatic `[source: …]` |
-| PII safety | depends on the human | enforced by design |
-| Consistency | varies by who you ask | same governed pipeline every time |
-| Auditability | "I think I read it somewhere" | prompt version + model + sources logged |
-| Cost control | invisible | measured per call, alertable |
-
-The solution doesn't just make Maya faster — it makes her answers **groundable, safe, and
-defensible**, which is the only version of "AI assistant" an accounting firm can actually
-deploy.
 
 ## What it shows
 - **Eval gate as a deploy gate** — golden set + LLM-as-judge scoring correctness,
