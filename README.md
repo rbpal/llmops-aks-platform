@@ -272,6 +272,18 @@ Managed Grafana. The **Fleet View** shows `aks-eastus2-rbpal` and `aks-centralus
 panels (traffic, drops, per-node) — a single pane for the whole fleet. Per-region drill-downs give
 egress/ingress bytes & packets and a drops-by-reason breakdown.
 
+**eastus2 cluster (`aks-eastus2-rbpal`) — Network Observability:**
+
+![Grafana Network Observability — eastus2 cluster traffic](docs/images/dr-grafana-eastus2.png)
+
+**centralus cluster (`aks-centralus-rbpal`) — Network Observability:**
+
+![Grafana Network Observability — centralus cluster traffic](docs/images/dr-grafana-centralus.png)
+
+Same dashboard, same Grafana instance — only the cluster selector changes. Egress/ingress bytes
+and packets per second confirm both regions are live and serving in parallel (active-active), not
+one hot and one cold.
+
 > The clean, unambiguous failover proof is the **Front Door Origin Health** chart in the failover
 > section above (eastus2 → 0%, centralus → 100%). On the cluster-network dashboards the same kill
 > appears only *indirectly* — as a connection-drop spike, since the node stays up when just the pod
