@@ -363,6 +363,30 @@ one hot and one cold.
   metrics in Prometheus format; **Azure Monitor Managed Prometheus** scrapes them on
   AKS and **Azure Managed Grafana** visualizes them (both provisioned in Terraform).
 
+## Trade-offs — this is a lab/demo, and that drove real decisions
+
+This is a learning build, not a production estate. Several choices were made *for* the lab — to
+prove a concept, keep the bill survivable, or keep the moving parts teachable. Each one is a
+conscious trade-off with a known production alternative, not an oversight.
+
+| Decision | What I chose (lab) | Production alternative | Why the lab choice is fine here |
+|---|---|---|---|
+| **Lifecycle** | `apply` → demo → `destroy` after every exercise | always-on, blue/green deploys | the meter is heavy (2× Firewall, 2× AKS, AFD Premium); tearing down = **$0 idle**, and `apply` rebuilds it identically. Cost of the choice: no persistent URL, ~cold rebuild each time |
+| **Topology** | full **active-active** (both regions hot, 50/50) | active-passive, or A/A scaled to real traffic | A/A is the *point* of the demo — it proves 50/50 + zero-RTO failover. Production might pick active-passive (cheaper standby) — it's literally **one priority flag** away |
+| **Failover test** | scale `genai-api` to **0 replicas** (app failure) | kill at the infra layer (AZ, control plane, region) | scale-to-zero is reversible, fast, and free to repeat; it proves the *probe→reroute* path. It does **not** prove a full regional/control-plane outage |
+| **Egress** | permissive `allow-all-egress-demo` rule, but **in-path + fully logged** | delete that rule → deny-by-default against the curated allow-list | nothing fails silently at AKS bootstrap during a live demo; the firewall still records every flow so you can *see* what to tighten. One rule deletion hardens it |
+| **Origin trust** | Front Door → App Gateway on `:80`, locked by `X-Azure-FDID` | end-to-end TLS / mTLS to the origin | the FDID header lock is the trust boundary and is enough to demonstrate origin lock-down; e2e TLS is the production add |
+| **Edge mobile rule** | `BlockMobileUserAgents` on `User-Agent` | real client attestation / device posture | it teaches *how* a WAF custom rule is authored; `User-Agent` is trivially spoofable and is **not** a real control (labelled as such in TF) |
+| **State** | **stateless** app, FAISS index baked into the image | external vector store + per-user history datastore | statelessness makes RPO≈0 trivial (nothing to replicate) and DR clean — at the cost of no conversation history and a rebuild-to-update corpus |
+| **Observability HA** | **one** Prometheus + Grafana (single region) | per-region monitoring or a global aggregator | one workspace = clean single-pane fleet view for a demo; it is itself a regional dependency (lose that region, lose live dashboards) |
+| **Scale** | golden set + small finance corpus, AKS 1→3 nodes | production eval volume, larger node pools, PrivateLink origins | enough to exercise the eval gate, autoscaling, and routing without paying for scale the demo never uses |
+| **Tenancy** | single subscription / single tenant | separate subs per environment for blast-radius isolation | fine for a personal lab; a real org would isolate prod from non-prod at the subscription boundary |
+
+**The through-line:** where the lab and production diverge, the lab optimises for **cost,
+reversibility, and teachability**, and every divergence is one well-marked switch away from the
+harder choice — delete a rule for deny-by-default, flip a priority for active-passive, add a
+datastore for state. The architecture is production-shaped; the *settings* are dialled to demo.
+
 ## Quickstart
 ```bash
 # install uv if needed: curl -LsSf https://astral.sh/uv/install.sh | sh
