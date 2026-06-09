@@ -569,6 +569,17 @@ reversibility, and teachability**, and every divergence is one well-marked switc
 harder choice — delete a rule for deny-by-default, flip a priority for active-passive, add a
 datastore for state. The architecture is production-shaped; the *settings* are dialled to demo.
 
+**Deliberate omission — Azure API Management (APIM).** A common "what's missing?" is APIM. It's left
+out **on purpose**: there is one consumer and one model backend, and the App Gateway already provides
+WAF + L7 ingress while the AKS internal load balancer handles in-cluster balancing — APIM here would be
+pure cost, latency, and an extra component to operate. At **enterprise** scale it becomes the right next
+component, sitting *between* the App Gateway and the cluster as the API-management plane: per-consumer
+keys and quotas, **token-based** rate-limiting and metering (APIM's GenAI-gateway policies — LLM cost is
+per-token), semantic caching, load-balancing/failover across multiple Azure OpenAI / Foundry
+deployments, and central Entra/JWT auth. App Gateway and APIM **compose** (network/WAF ingress vs API
+governance), so a mature platform runs both. Triggers to add it: multiple consuming teams, token-based
+cost governance, or multiple model backends — none of which a single-consumer lab has.
+
 ---
 
 ## Cost control — where the money goes, and how to cut it
